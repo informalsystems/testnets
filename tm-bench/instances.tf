@@ -18,8 +18,8 @@ TMBENCH_RATE=${var.tmbench_rate}
 TMBENCH_SIZE=${var.tmbench_size}
 EOF
     security_groups = [
-        "allow_ssh",
-        "allow_all_outbound",
+        "${aws_security_group.allow_ssh_tmbench.name}",
+        "${aws_security_group.allow_all_outbound_tmbench.name}",
     ]
     tags            = {
         Name  = "Tendermint tm-bench ${count.index}"
