@@ -3,10 +3,13 @@ This repository aims to contain various different configurations of test
 networks for, and relating to, Tendermint.
 
 ## Test Networks
-At present, there is only one test network provided:
+At present, there are two test networks provided:
 
 * [`tendermint`](./tendermint/README.md) - A rudimentary Tendermint network
   (with some monitoring by way of Grafana/InfluxDB).
+* [`tm-bench`](./tm-bench/README.md) - A simple way of instantiating EC2 nodes
+  running the Tendermint `tm-bench` tool to submit large quantities of
+  transactions to one or more Tendermint nodes.
 
 ## License
 Copyright 2019 Interchain Foundation
