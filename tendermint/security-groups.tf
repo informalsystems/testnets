@@ -32,6 +32,23 @@ resource "aws_security_group" "allow_http" {
     }
 }
 
+resource "aws_security_group" "allow_influxdb" {
+    name        = "allow_influxdb"
+    description = "Allows TCP inbound traffic for InfluxDB from anywhere"
+
+    ingress {
+        from_port   = 8086
+        to_port     = 8086
+        protocol    = "tcp"
+        cidr_blocks = ["0.0.0.0/0"]
+        description = "InfluxDB"
+    }
+
+    tags = {
+        Name = "allow_influxdb"
+    }
+}
+
 resource "aws_security_group" "allow_tendermint" {
     name        = "allow_tendermint"
     description = "Allows inbound Tendermint-related TCP traffic from anywhere"
@@ -63,5 +80,22 @@ resource "aws_security_group" "allow_outage_sim" {
 
     tags = {
         Name = "allow_outage_sim"
+    }
+}
+
+resource "aws_security_group" "allow_all_outbound" {
+    name        = "allow_all_outbound"
+    description = "Allow all outbound traffic to anywhere"
+
+    egress {
+        from_port   = 0
+        to_port     = 0
+        protocol    = "-1"
+        cidr_blocks = ["0.0.0.0/0"]
+        description = "Allow all outbound TCP and UDP traffic"
+    }
+
+    tags = {
+        Name = "allow_all_outbound"
     }
 }

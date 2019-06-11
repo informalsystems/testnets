@@ -60,11 +60,17 @@ configuration for the nodes you've just launched. But first you'll need the
 public DNS addresses for all of your hosts:
 
 ```bash
-terraform show -json | jq '.values.root_module.resources[] |
-    select(.address == "aws_instance.tendermint") |
-    {address: .address, public_dns: .values.public_dns, name: .values.tags.Name}'
+terraform show -json | jq '.values.root_module.resources | 
+  sort_by(.values.tags.ID)[] | 
+  select(.address == "aws_instance.tendermint") | 
+  {address: .address, public_dns: .values.public_dns, name: .values.tags.Name}'
 
 # You should get output something like this:
+{
+  "address": "aws_instance.tendermint",
+  "public_dns": "ec2-54-165-89-152.compute-1.amazonaws.com",
+  "name": "Tendermint Node 0"
+}
 {
   "address": "aws_instance.tendermint",
   "public_dns": "ec2-54-91-72-126.compute-1.amazonaws.com",
@@ -80,11 +86,17 @@ terraform show -json | jq '.values.root_module.resources[] |
   "public_dns": "ec2-3-89-101-39.compute-1.amazonaws.com",
   "name": "Tendermint Node 3"
 }
-{
-  "address": "aws_instance.tendermint",
-  "public_dns": "ec2-54-165-89-152.compute-1.amazonaws.com",
-  "name": "Tendermint Node 0"
-}
+```
+
+To just get the hostnames (sorted as `node0`, `node1`, `node2`, ...):
+
+```bash
+terraform show -json | 
+  jq '.values.root_module.resources | 
+    sort_by(.values.tags.ID)[] | 
+    select(.address == "aws_instance.tendermint") | 
+    .values.public_dns' | 
+    tr -d '"'
 ```
 
 So that gives you all 4 hostnames for your Tendermint nodes. Now, generate some
@@ -113,10 +125,10 @@ First we need to add the SSH key fingerprints for the hosts to our
 # make a backup of your known_hosts file first
 cp ~/.ssh/known_hosts ~/.ssh/known_hosts.bak
 # add each host's SSH fingerprints
-ssh-keyscan ec2-54-165-89-152.compute-1.amazonaws.com >> ~/.ssh/known_hosts
-ssh-keyscan ec2-54-91-72-126.compute-1.amazonaws.com >> ~/.ssh/known_hosts
-ssh-keyscan ec2-3-95-58-218.compute-1.amazonaws.com >> ~/.ssh/known_hosts
-ssh-keyscan ec2-3-89-101-39.compute-1.amazonaws.com >> ~/.ssh/known_hosts
+ssh-keyscan ec2-54-165-89-152.compute-1.amazonaws.com \
+  ec2-54-91-72-126.compute-1.amazonaws.com \
+  ec2-3-95-58-218.compute-1.amazonaws.com \
+  ec2-3-89-101-39.compute-1.amazonaws.com >> ~/.ssh/known_hosts
 ```
 
 Second, we create a file in this folder called `hosts` with the following
@@ -139,6 +151,7 @@ Third, create a file in this folder called `local-vars.yaml`:
 tendermint_config_path: /tmp/testnet
 
 # The full path to the Tendermint binary to deploy
+# NB: This must be the Linux version of the binary, built using `make build-linux`
 tendermint_binary: /path/to/github.com/tendermint/tendermint/build/tendermint
 ```
 
