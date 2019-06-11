@@ -1,0 +1,10 @@
+---
+# Ansible playbook for deploying Tendermint to a group of target nodes
+- hosts: tendermint
+  become: yes
+  become_user: root
+  vars:
+    tendermint_user: tendermint
+    tendermint_group: tendermint
+  roles:
+    - tendermint

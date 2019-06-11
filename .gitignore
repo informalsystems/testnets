@@ -1,5 +1,5 @@
 #  Local .terraform directories
-**/.terraform/*
+**/.terraform
 
 # .tfstate files
 *.tfstate
@@ -7,3 +7,8 @@
 
 # .tfvars files
 *.tfvars
+
+# Ansible-related
+*.retry
+hosts
+local-vars.yaml
