@@ -27,3 +27,9 @@ variable "monitor_instance_type" {
     description = "The AWS EC2 instance type for the monitoring node to be deployed"
     default     = "t3.small"
 }
+
+variable "deployment_group" {
+    type        = string
+    description = "A tag to add to all of the nodes deployed here to be able to easily identify them through EC2"
+    default     = "testnet"
+}

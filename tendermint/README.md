@@ -152,6 +152,9 @@ ansible-playbook -i hosts \
   deploy-tendermint.yaml
 ```
 
+This final step can be executed multiple times to deploy different versions of
+Tendermint binaries.
+
 ## Destroying the Network
 To take down the network, from this folder:
 
@@ -163,8 +166,8 @@ terraform destroy
 storage resources backing the VMs.
 
 ## Grafana
-Using `jq` you can easily check what the public DNS entries are for each of the
-deployed services:
+You can either find your monitor's public DNS through the EC2 console, or by
+using `jq`:
 
 ```bash
 terraform show -json | jq '.values.root_module.resources[] |
@@ -181,4 +184,5 @@ terraform show -json | jq '.values.root_module.resources[] |
 Take note of the `public_dns` value of the node with address
 `aws_instance.monitor` - this is the public DNS entry for your new Grafana
 instance. Simply navigate to `http://<aws_instance.monitor>` and you'll be able
-to log in using the default Grafana credentials (`admin`/`admin`).
+to log in using the default Grafana credentials (`admin`/`admin`), and then
+change your default admin password.
