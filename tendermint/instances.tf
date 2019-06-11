@@ -25,10 +25,11 @@ EOF
 
 resource "aws_instance" "tendermint" {
     count           = var.tendermint_nodes
-    ami             = "ami-0bd0860cdbabfad70"
+    ami             = "ami-01a43142f16749cd3"
     instance_type   = "${var.tendermint_instance_type}"
     key_name        = "${var.keypair_name}"
     user_data       = <<EOF
+TELEGRAF_COLLECTION_INTERVAL=${var.telegraf_collection_interval}
 INFLUXDB_URL="http://${aws_instance.monitor.public_dns}:8086"
 INFLUXDB_DATABASE=tendermint
 INFLUXDB_USERNAME=tendermint

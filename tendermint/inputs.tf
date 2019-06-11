@@ -4,6 +4,12 @@ variable "influxdb_password" {
     default     = "somepassword"
 }
 
+variable "telegraf_collection_interval" {
+    type        = string
+    description = "The default interval at which Telegraf must be configured to collect metrics from the Tendermint nodes"
+    default     = "10s"
+}
+
 variable "keypair_name" {
     type        = string
     description = "Which AWS keypair to use to allow SSH access to your servers (see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html)"
