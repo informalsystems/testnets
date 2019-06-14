@@ -2,7 +2,7 @@
 
 Once you have a [Tendermint network](../tendermint/README.md) up and running,
 you can execute a simple load test against it using one or more VMs running
-`tm-bench` (AMI ID `ami-01a7f3616737e7806`).
+`tm-bench` (AMI ID `ami-0f02eb0325711c2dd` in `us-east-1`).
 
 ## Requirements
 In order to build this network, you will need the following:
