@@ -197,11 +197,11 @@ This is a full list of all of the input parameters that one can supply to the
   region (N. California). Default: 0.
 * `nodes_useast2` - The number of Tendermint nodes to launch in the `us-east-2`
   region (Ohio). Default: 0.
-* `nodes_useast2` - The number of Tendermint nodes to launch in the `us-east-2`
-  region (Ohio). Default: 0.
-* `nodes_useast2` - The number of Tendermint nodes to launch in the `us-east-2`
-  region (Ohio). Default: 0.
-* `nodes_useast2` - The number of Tendermint nodes to launch in the `us-east-2`
-  region (Ohio). Default: 0.
-* `nodes_useast2` - The number of Tendermint nodes to launch in the `us-east-2`
-  region (Ohio). Default: 0.
+* `nodes_apnortheast2` - The number of Tendermint nodes to launch in the
+  `ap-northeast-2` region (Seoul). Default: 0.
+* `nodes_apsoutheast2` - The number of Tendermint nodes to launch in the
+  `ap-southeast-2` region (Sydney). Default: 0.
+* `nodes_eucentral1` - The number of Tendermint nodes to launch in the
+  `eu-central-1` region (Frankfurt). Default: 0.
+* `nodes_euwest1` - The number of Tendermint nodes to launch in the `eu-west-1`
+  region (Ireland). Default: 0.
