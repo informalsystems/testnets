@@ -1,0 +1,7 @@
+---
+- hosts: tendermint
+  become: yes
+  become_user: root
+  tasks:
+    - name: Ensure Tendermint service is started
+      service: name=tendermint state=started
