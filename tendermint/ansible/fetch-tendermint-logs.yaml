@@ -8,7 +8,7 @@
     - name: Ensure Tendermint service is stopped
       service: name=tendermint state=stopped
     
-    - name: Compress log file
+    - name: Archive log files for node
       archive: 
         path: "/var/log/tendermint*"
         dest: /tmp/tendermint-logs.tar.bz2
@@ -18,3 +18,7 @@
         src: /tmp/tendermint-logs.tar.bz2
         dest: "{{ local_log_path }}/{{ inventory_hostname }}/tendermint-logs.tar.bz2"
         flat: yes
+  
+    - name: Unarchive compressed logs locally
+      become: no
+      local_action: "command tar xf {{ local_log_path }}/{{ inventory_hostname }}/tendermint-logs.tar.bz2 -C {{ local_log_path }}/{{ inventory_hostname }}"
