@@ -46,9 +46,9 @@ variable "tendermint_node_endpoints" {
 }
 
 variable "tmbench_time" {
-    type        = number
+    type        = string
     description = "The time for which to run tm-bench, in seconds"
-    default     = 180
+    default     = "180"
 }
 
 variable "tmbench_broadcast_tx_method" {
@@ -58,21 +58,27 @@ variable "tmbench_broadcast_tx_method" {
 }
 
 variable "tmbench_connections" {
-    type        = number
+    type        = string
     description = "The number of concurrent connections to make to each endpoint"
-    default     = 1
+    default     = "1"
 }
 
 variable "tmbench_rate" {
-    type        = number
+    type        = string
     description = "The rate at which to generate transactions from tm-bench"
-    default     = 1000
+    default     = "1000"
 }
 
 variable "tmbench_size" {
-    type        = number
+    type        = string
     description = "The size of each transaction to send to the Tendermint nodes"
-    default     = 250
+    default     = "250"
+}
+
+variable "tmbench_finish_wait" {
+    type        = number
+    description = "The amount of time to wait (seconds) after each successive execution of tm-bench (constant for all executions)"
+    default     = 0
 }
 
 data "aws_region" "current" {
@@ -88,7 +94,7 @@ output "hosts" {
 
 resource "aws_instance" "tmbench" {
     count           = var.tmbench_instances
-    ami             = "ami-0f02eb0325711c2dd"
+    ami             = "ami-0760f51e3146afbf9"
     instance_type   = "${var.instance_type}"
     key_name        = "${var.keypair_name}"
     user_data       = <<EOF
@@ -100,11 +106,12 @@ DC="${data.aws_region.current.name}"
 GROUP="${var.group}"
 
 TMBENCH_ENDPOINTS="${var.tendermint_node_endpoints}"
-TMBENCH_TIME=${var.tmbench_time}
-TMBENCH_BROADCAST_TX_METHOD=${var.tmbench_broadcast_tx_method}
-TMBENCH_CONNECTIONS=${var.tmbench_connections}
-TMBENCH_RATE=${var.tmbench_rate}
-TMBENCH_SIZE=${var.tmbench_size}
+TMBENCH_TIME="${var.tmbench_time}"
+TMBENCH_BROADCAST_TX_METHOD="${var.tmbench_broadcast_tx_method}"
+TMBENCH_CONNECTIONS="${var.tmbench_connections}"
+TMBENCH_RATE="${var.tmbench_rate}"
+TMBENCH_SIZE="${var.tmbench_size}"
+TMBENCH_FINISH_WAIT="${var.tmbench_finish_wait}"
 EOF
     security_groups = [
         "${aws_security_group.tmbench_sg.name}",
