@@ -8,6 +8,9 @@ parse it, and using all of the scripts in this repository, deploy this network.
 
 ## Configuration
 
+This is an example configuration file to illustrate arbitrary usage of the
+proposed tool:
+
 ```yaml
 # A global identifier to apply across the entire test network. Will be added
 # to the `Group` tags on all created AWS resources. This identifier is included
@@ -43,20 +46,24 @@ monitoring:
     password: $INFLUXDB_PASSWORD
 
 # A mapping of named sub-groups of nodes within the desired test network
-# resource group.
+# resource group. All group names (e.g. `my_validators`, `my_seeds`, etc.) are
+# totally arbitrary. You can have as many groups with different identifiers as
+# you want.
 tendermint_network:
-  # `my_validators` could be any kind of unique identifier for this group
   - my_validators:
       # If you want to deploy an official release of Tendermint, just specify
       # a version number here and its binary will be deployed from GitHub.
       tendermint: v0.31.7
+
+      # Are these nodes to be validators? (Default: yes)
+      validators: yes
 
       # Are these nodes' details to be included in the `genesis.json` file?
       # (Default: yes)
       in_genesis: yes
 
       # Should these nodes' Tendermint services be started? (Default: yes)
-      #start: yes
+      start: yes
 
       # Where to find the configuration file to use as a template for
       # generating configuration for all of the nodes in this sub-network.
@@ -80,6 +87,8 @@ tendermint_network:
 
   - my_seeds:
       tendermint: v0.31.7
+      # We don't want our seed nodes to be validators
+      validators: no
       config_template: ./seednode-config.toml
       # We want these nodes to be seeds
       seeds: yes
@@ -88,10 +97,12 @@ tendermint_network:
         - us_east_1: 1    # my_seeds[0]
         - us_west_1: 1    # my_seeds[1]
 
-  - late_joiners:
+  - late_joiner_validators:
       # If you want to deploy a custom Tendermint binary, specify its path
       # instead of an official release version.
       tendermint: /path/to/local/tendermint
+
+      validators: yes
 
       # We don't want these nodes to be included from the beginning. You will
       # have to add them to the network later manually/programmatically.
@@ -99,13 +110,24 @@ tendermint_network:
 
       # The nodes should not be started automatically (assumes that you will
       # start the Tendermint services manually at a later stage)
-      started: no
+      start: no
 
       config_template: ./late-joiners-config.toml
       use_seeds:
         - my_seeds
       regions:
-        - us_east_1: 1   # late_joiners[0]
+        - us_east_1: 2   # late_joiner_validators[0],late_joiner_validators[1]
+  
+  - late_joiner_non_validators:
+      tendermint: /path/to/local/tendermint
+      validators: no
+      in_genesis: no
+      start: no
+      config_template: ./late-joiners-config.toml
+      use_seeds:
+        - my_seeds
+      regions:
+        - us_west_1: 2   # late_joiner_non_validators[0],late_joiner_non_validators[1]
 
 load_tests:
   - load0:
@@ -157,12 +179,19 @@ tmtestnet network deploy
 
 # Destroy the entire network (deleting all AWS resources)
 tmtestnet network destroy
+# Destroy the entire Tendermint network, but keep the monitoring service (if
+# deployed)
+tmtestnet network destroy --keep-monitoring
 
+# Start specific node group(s)
+tmtestnet network start late_joiner_validators
 # Start specific node(s)
-tmtestnet network start node4 node5 node6
+tmtestnet network start late_joiner_validators[0] late_joiner_non_validators[0]
 
+# Stop specific node group(s)
+tmtestnet network stop late_joiner_validators late_joiner_non_validators
 # Stop specific node(s)
-tmtestnet network stop node4 node5
+tmtestnet network stop late_joiner_validators[0]
 
 # Start load test
 tmtestnet loadtest start load0
