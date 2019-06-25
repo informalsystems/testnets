@@ -12,3 +12,9 @@
 *.retry
 hosts
 local-vars.yaml
+
+# Python-related
+/.venv/
+
+# tmtestnet-related
+./tmtestnet.yaml
