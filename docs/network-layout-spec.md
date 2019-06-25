@@ -172,7 +172,7 @@ For example, one should simply be able to run something like:
 
 ```bash
 # By default, the tool should look for a file called `tmtestnet.yaml` or
-# `tmtestnet.yml` in the current folder. Override with --config parameter.
+# in the current folder. Override with --config parameter.
 
 # Deploy the network (creating all AWS resources)
 tmtestnet network deploy
