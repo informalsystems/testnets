@@ -25,13 +25,12 @@ SUPPORTED_REGIONS = {
     "eu-central-1",
     "eu-west-1",
 }
-
 ALLOWED_GROUP_NAME_CHARSET = set(string.ascii_letters + string.digits + "_-")
-
 ENV_VAR_MATCHERS = [
     re.compile(r"\$\{(?P<env_var_name>[^}^{]+)\}"),
     re.compile(r"\$(?P<env_var_name>[A-Za-z0-9_]+)"),
 ]
+VALID_BROADCAST_TX_METHODS = {"async", "sync", "commit"}
 
 # The default logger is pretty plain and boring
 logger = logging.getLogger("")
@@ -125,7 +124,7 @@ def main():
         cfg = Config.load_from_file(args.config)
     except Exception as e:
         logger.error("Failed to load configuration file: %s", args.config)
-        logger.exception(e)
+        logger.error(e)
         sys.exit(1)
 
     import pdb; pdb.set_trace()
@@ -141,31 +140,104 @@ def main():
 class SignalFXConfig:
     """Configuration for connecting our network to SignalFX."""
 
+    enabled = False
     api_token = ""
     realm = ""
+
+    def __repr__(self):
+        return "SignalFXConfig(enabled=%s, api_token=%s, realm=%s)" % (
+            self.enabled,
+            self.api_token, 
+            self.realm,
+        )
+
+    @classmethod
+    def load(cls, v):
+        if not isinstance(v, dict):
+            raise Exception("Expected \"signalfx\" configuration to be a set of key/value pairs, but was not")
+        cfg = SignalFXConfig()
+        cfg.enabled = v.get("enabled", cfg.enabled)
+        cfg.api_token = v.get("api_token", cfg.api_token)
+        cfg.realm = v.get("realm", cfg.realm)
+        if cfg.enabled:
+            logger.warning("SignalFX is currently planned for a future release and is currently not supported")
+            if len(cfg.api_token) == 0:
+                raise Exception("SignalFX API token cannot be empty when SignalFX is enabled")
+            if len(cfg.realm) == 0:
+                raise Exception("SignalFX realm cannot be empty when SignalFX is enabled")
+        return cfg
 
 
 class InfluxDBConfig:
     """Configuration for connecting our network to an InfluxDB instance for
     monitoring."""
 
+    enabled = False
     deploy = False
     region = "us-east-1"
     database = "tendermint"
     username = "tendermint"
     password = "changeme"
 
+    def __repr__(self):
+        return "InfluxDBConfig(enabled=%s, deploy=%s, region=%s, database=%s, username=%s, password=%s)" % (
+            self.enabled,
+            self.deploy,
+            self.region,
+            self.database,
+            self.username,
+            self.password,
+        )
+
+    @classmethod
+    def load(cls, v):
+        if not isinstance(v, dict):
+            raise Exception("Expected \"influxdb\" configuration to be a set of key/value pairs, but was not")
+        cfg = InfluxDBConfig()
+        cfg.enabled = v.get("enabled", cfg.enabled)
+        cfg.deploy = v.get("deploy", cfg.deploy)
+        cfg.region = v.get("region", cfg.region)
+        cfg.database = v.get("database", cfg.database)
+        cfg.username = v.get("username", cfg.username)
+        cfg.password = v.get("password", cfg.password)
+        if cfg.enabled:
+            if cfg.deploy:
+                if len(cfg.region) == 0:
+                    raise Exception("InfluxDB region cannot be empty when enabled and deploying")
+            if len(cfg.database) == 0:
+                raise Exception("InfluxDB database cannot be empty when InfluxDB is enabled")
+            if len(cfg.username) == 0:
+                raise Exception("InfluxDB username cannot be empty when InfluxDB is enabled")
+            if len(cfg.password) == 0:
+                raise Exception("InfluxDB password cannot be empty when InfluxDB is enabled")
+            if cfg.password == "changeme":
+                logger.warning("You should really set the InfluxDB password to a strong one!")
+        return cfg
+
 
 class MonitoringConfig:
     """Configuration related to the monitoring server/service for test
     networks."""
 
-    signalfx_config = SignalFXConfig()
-    influxdb_config = InfluxDBConfig()
+    signalfx = SignalFXConfig()
+    influxdb = InfluxDBConfig()
+
+    def __repr__(self):
+        return "MonitoringConfig(signalfx=%s, influxdb=%s)" % (
+            self.signalfx,
+            self.influxdb,
+        )
 
     @classmethod
     def load(cls, v):
-        return MonitoringConfig()
+        if not isinstance(v, dict):
+            raise Exception("Expected \"monitoring\" configuration to be a set of key/value pairs, but was not")
+        cfg = MonitoringConfig()
+        if "signalfx" in v:
+            cfg.signalfx = SignalFXConfig.load(v["signalfx"])
+        if "influxdb" in v:
+            cfg.influxdb = InfluxDBConfig.load(v["influxdb"])
+        return cfg
 
 
 class NodeGroupConfig:
@@ -252,7 +324,7 @@ class NetworkConfig:
     """Tendermint network configuration."""
 
     node_group_configs = [
-        {"validators": NodeGroupConfig("validators")},
+        NodeGroupConfig("validators"),
     ]
 
     def __repr__(self):
@@ -261,7 +333,7 @@ class NetworkConfig:
     def get_node_group_configs_by_name(self):
         configs_by_name = dict()
         for gc in self.node_group_configs:
-            configs_by_name[list(gc.keys())[0]] = list(gc.values())[0]
+            configs_by_name[gc.name] = gc
         return configs_by_name
 
     def validate_consistency(self):
@@ -298,7 +370,7 @@ class NetworkConfig:
                 raise Exception("Expected a single key/value pair for each node group config in \"tendermint_network\"")
             group_name = validate_group_name(list(group_cfg.keys())[0], "in \"tendermint_network\" config")
             group_v = list(group_cfg.values())[0]
-            cfg.node_group_configs.append({group_name: NodeGroupConfig.load(group_name, group_v)})
+            cfg.node_group_configs.append(NodeGroupConfig.load(group_name, group_v))
 
         cfg.validate_consistency()
 
@@ -327,6 +399,45 @@ class TMBenchLoadTestConfig:
             self.size,
         )
 
+    @classmethod
+    def load(cls, name, v, node_group_configs):
+        if not isinstance(v, dict):
+            raise Exception("Expected tm-bench load testing configuration \"%s\" to be a set of key/value pairs, but was not" % name)
+        cfg = TMBenchLoadTestConfig()
+        cfg.client_nodes = int(v.get("client_nodes", cfg.client_nodes))
+        if cfg.client_nodes < 1:
+            raise Exception("Expected at least 1 client node for tm-bench load test configuration \"%s\"" % name)
+            
+        if "targets" not in v:
+            raise Exception("Missing \"targets\" field in tm-bench load test configuration \"%s\"" % name)
+        cfg.targets = [as_group_or_node_id(s, "tm-bench load test configuration %s" % name) for s in as_string_list(
+            v["targets"], 
+            "tm-bench load test configuration %s" % name,
+        )]
+        validate_group_or_node_refs(node_group_configs, cfg.targets, "tm-bench load test configuration %s" % name)
+
+        cfg.time = v.get("time", cfg.time)
+        if cfg.time < 1:
+            raise Exception("Expected at least 1 second load test time for tm-bench load test configuration \"%s\"" % name)
+        cfg.broadcast_tx_method = v.get("broadcast_tx_method", cfg.broadcast_tx_method)
+        if cfg.broadcast_tx_method not in VALID_BROADCAST_TX_METHODS:
+            raise Exception("Invalid broadcast_tx_method for load test \"%s\": %s" % (name, cfg.broadcast_tx_method))
+        cfg.connections = int(v.get("connections", cfg.connections))
+        if cfg.connections < 1:
+            raise Exception("Expected at least 1 connection for tm-bench load test configuration \"%s\"" % name)
+        cfg.rate = int(v.get("rate", cfg.rate))
+        if cfg.rate < 1:
+            raise Exception("Expected at least 1 tx/sec (rate) for tm-bench load test configuration \"%s\"" % name)
+        cfg.size = int(v.get("size", cfg.size))
+        if cfg.size < 40:
+            raise Exception("Expected transaction size to be at least 40 bytes for tm-bench load test configuration \"%s\"" % name)
+        return cfg
+
+
+LOAD_TEST_METHODS = {
+    "tm-bench": TMBenchLoadTestConfig,
+}
+
 
 class LoadTestConfig:
     """Configuration for a single load test."""
@@ -345,34 +456,62 @@ class LoadTestConfig:
     def __init__(self, name):
         self.name = name
 
+    @classmethod
+    def load(cls, name, v, node_group_configs):
+        if not isinstance(v, dict):
+            raise Exception("Expected load test config for %s to be a set of key/value pairs, but was not" % name)
+        cfg = LoadTestConfig(name)
+        cfg.method = v.get("method", cfg.method)
+        if cfg.method not in LOAD_TEST_METHODS:
+            raise Exception("Unsupported load test method: %s (supported methods: %s)" % (cfg.method, ", ".join(LOAD_TEST_METHODS.keys())))
+        method = LOAD_TEST_METHODS[cfg.method]
+        cfg.config = method.load(name, v, node_group_configs)
+        return cfg
+
 
 class LoadTestsConfig:
     """Configuration for load testing."""
 
     tests = [
-        {"load0": LoadTestConfig("load0")},
+        LoadTestConfig("load0"),
     ]
 
     def __repr__(self):
         return "LoadTestsConfig(tests=%s)" % repr(self.tests)
 
     @classmethod
-    def load(cls, d):
-        return LoadTestsConfig()
+    def load(cls, v, node_group_configs):
+        if not isinstance(v, list):
+            raise Exception("Expected load tests configuration to be a list of objects, but was: %s" % type(v))
+        cfg = LoadTestsConfig()
+        cfg.tests = []
+        i = 0
+        for test in v:
+            if not isinstance(test, dict):
+                raise Exception("Load test at index %d is supposed to be a key/value pair, not %s" % (i, type(test)))
+            if len(test) != 1:
+                raise Exception("Load test at index %d is supposed to be single a key/value pair, but %d entries were found" % (i, len(test)))
+            test_name = list(test.keys())[0]
+            if len(test_name) == 0:
+                raise Exception("Missing name for load test at index %d" % i)
+            test_cfg = LoadTestConfig.load(test_name, list(test.values())[0], node_group_configs)
+            cfg.tests.append(test_cfg)
+            i += 1
+        return cfg
 
 
 class Config:
     """Configuration for tmtestnet."""
 
     resource_group_id = ""
-    monitoring_config = MonitoringConfig()
+    monitoring = MonitoringConfig()
     tendermint_network = NetworkConfig()
     load_tests = LoadTestsConfig()
 
     def __repr__(self):
-        return "Config(resource_group_id=%s, monitoring_config=%s, tendermint_network=%s, load_tests=%s)" % (
+        return "Config(resource_group_id=%s, monitoring=%s, tendermint_network=%s, load_tests=%s)" % (
             self.resource_group_id,
-            repr(self.monitoring_config),
+            repr(self.monitoring),
             repr(self.tendermint_network),
             repr(self.load_tests),
         )
@@ -392,14 +531,14 @@ class Config:
 
         cfg = Config()
         cfg.resource_group_id = v["id"]
+
+        cfg.tendermint_network = NetworkConfig.load(v["tendermint_network"])
         
         if "monitoring" in v:
-            cfg.monitoring_config = MonitoringConfig.load(v["monitoring"])
-        
-        cfg.tendermint_network = NetworkConfig.load(v["tendermint_network"])
+            cfg.monitoring = MonitoringConfig.load(v["monitoring"])
 
         if "load_tests" in v:
-            cfg.load_tests = LoadTestsConfig.load(v["load_tests"])
+            cfg.load_tests = LoadTestsConfig.load(v["load_tests"], cfg.tendermint_network.get_node_group_configs_by_name())
 
         return cfg
 
