@@ -16,5 +16,6 @@ local-vars.yaml
 # Python-related
 /.venv/
 
-# tmtestnet-related
-./tmtestnet.yaml
+# tmtestnet-related, so you can use this file locally without accidentally
+#committing to the repo
+/tmtestnet.yaml
