@@ -72,6 +72,7 @@ EOF
     tags      = {
         Name  = "Tendermint Monitor (${var.group})"
         ID    = "monitor"
+        Class = "monitor"
         Group = "${var.group}"
     }
 
