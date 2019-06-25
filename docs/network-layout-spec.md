@@ -143,7 +143,7 @@ load_tests:
         # Can specify an entire group to connect to all endpoints
         - my_validators
         # Can specify a single node within a group
-        - late_joiners[0]
+        - late_joiner_validators[0]
       
       # The number of seconds for which to run the load test
       time: 120
