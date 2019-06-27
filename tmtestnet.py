@@ -52,6 +52,28 @@ group = \"%(resource_group_id)s\"
 volume_size = %(volume_size)d
 """
 
+MONITOR_OUTPUT_VARS_TEMPLATE = """host:
+  public_dns: "{{ monitoring.outputs.host.value.public_dns }}"
+  public_ip: "{{ monitoring.outputs.host.value.public_ip }}"
+influxdb_url: "{{ monitoring.outputs.influxdb_url.value }}"
+grafana_url: "{{ monitoring.outputs.grafana_url.value }}"
+"""
+
+TENDERMINT_VARS_TEMPLATE = """keypair_name = \"%(keypair_name)s\"
+influxdb_url = \"%(influxdb_url)s\"
+influxdb_password = \"%(influxdb_password)s\"
+group = \"%(resource_group_id)s__%(node_group)s\"
+instance_type = \"%(instance_type)s\"
+volume_size = %(volume_size)d
+nodes_useast1 = %(nodes_useast1)d
+nodes_uswest1 = %(nodes_uswest1)d
+nodes_useast2 = %(nodes_useast2)d
+nodes_apnortheast2 = %(nodes_apnortheast2)d
+nodes_apsoutheast2 = %(nodes_apsoutheast2)d
+nodes_eucentral1 = %(nodes_eucentral1)d
+nodes_euwest1 = %(nodes_euwest1)d
+"""
+
 # The default logger is pretty plain and boring
 logger = logging.getLogger("")
 
@@ -182,49 +204,74 @@ def tmtestnet(cfg_file, fn, desc):
 def network_deploy(cfg: "Config"):
     """Deploys the network according to the given configuration."""
     # ensure our resource group's path exists
-    ac = prepare_network_config(cfg, "present")
-    logger.info("Deploying network. This may take some time.")
-    sh([
-        "ansible-playbook", "-e", "@%s" % ac.extra_vars_path, "deploy.yaml",
-    ])
-    logger.info("Network successfully deployed!")
+    amc = prepare_monitor_config(cfg, "present")
+    if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
+        logger.info("Deploying monitoring")
+        sh([
+            "ansible-playbook", "-e", "@%s" % amc.extra_vars_path, "monitor.yaml",
+        ])
+        logger.info("Monitoring successfully deployed!")
+
+    for node_group in cfg.tendermint_network.node_group_configs:
+        logger.info("Deploying Tendermint node group: %s", node_group.name)
+        atc = prepare_tendermint_config(cfg, "present", amc, node_group)
+        sh([
+            "ansible-playbook", "-e", "@%s" % atc.extra_vars_path, "tendermint.yaml",
+        ])
+        logger.info("Tendermint network successfully deployed!")
 
 
 def network_destroy(cfg: "Config"):
-    ac = prepare_network_config(cfg, "absent")
-    logger.info("Destroying network. This may take some time.")
-    sh([
-        "ansible-playbook", "-e", "@%s" % ac.extra_vars_path, "deploy.yaml",
-    ])
-    logger.info("Network successfully destroyed!")
+    """Destroys the network according to the given configuration."""
+    amc = prepare_monitor_config(cfg, "absent")
+
+    # destroy node clusters backwards
+    for node_group in cfg.tendermint_network.node_group_configs:
+        logger.info("Deploying Tendermint node group: %s", node_group.name)
+        atc = prepare_tendermint_config(cfg, "present", amc, node_group)
+        sh([
+            "ansible-playbook", "-e", "@%s" % atc.extra_vars_path, "tendermint.yaml",
+        ])
+        logger.info("Tendermint network successfully deployed!")
+
+    # if we've previously deployed the monitoring
+    if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
+        logger.info("Destroying monitoring")
+        sh([
+            "ansible-playbook", "-e", "@%s" % amc.extra_vars_path, "monitor.yaml",
+        ])
+        logger.info("Monitoring successfully destroyed!")
 
 
 def prepare_config_folder(cfg: "Config"):
     rg_path = os.path.join(os.path.expanduser("~"), ".tmtestnet", cfg.resource_group_id)
-    os.makedirs(rg_path, mode=0o755, exist_ok=True)
-    logger.debug("Path present: %s" % rg_path)
+    if not os.path.isdir(rg_path):
+        os.makedirs(rg_path, mode=0o755, exist_ok=True)
+        logger.debug("Created folder: %s" % rg_path)
     # ensure the relevant paths are present for each component of the network
     for subpath in COMPONENTS:
         sp = os.path.join(rg_path, subpath)
-        os.makedirs(sp, mode=0o755, exist_ok=True)
-        logger.debug("Path present: %s" % sp)
+        if not os.path.isdir(sp):
+            os.makedirs(sp, mode=0o755, exist_ok=True)
+            logger.debug("Created folder: %s" % sp)
     return rg_path
 
 
-def prepare_network_config(cfg: "Config", state: str) -> "AnsibleNetworkConfig":
+def prepare_monitor_config(cfg: "Config", state: str) -> "AnsibleMonitorConfig":
     """Ensures that the ~/.tmtestnet/ folder exists and that the relevant
     resource group ID's folder is present."""
     rg_path = prepare_config_folder(cfg)
     
-    ac = AnsibleNetworkConfig()
+    ac = AnsibleMonitorConfig()
     ac.resource_group_path = rg_path
-    ac.extra_vars_path = os.path.join(rg_path, "extra-vars.yaml")
     ac.monitor_path = os.path.join(rg_path, COMPONENT_MONITOR)
-    ac.monitor_vars_file = os.path.join(ac.monitor_path, "monitor.tfvars")
-
-    # dump the monitor-related variables
+    ac.extra_vars_path = os.path.join(ac.monitor_path, "ansible-extra-vars.yaml")
+    ac.monitor_input_vars_file = os.path.join(ac.monitor_path, "monitor-inputs.tfvars")
+    ac.monitor_output_vars_template = os.path.join(ac.monitor_path, "monitor-outputs.yaml.jinja2")
+    ac.monitor_output_vars_file = os.path.join(ac.monitor_path, "monitor-outputs.yaml")
+    
     if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
-        with open(ac.monitor_vars_file, "wt") as f:
+        with open(ac.monitor_input_vars_file, "wt") as f:
             f.write(MONITOR_VARS_TEMPLATE % {
                 "influxdb_password": cfg.monitoring.influxdb.password,
                 "keypair_name": AWS_KEYPAIR_NAME,
@@ -232,17 +279,76 @@ def prepare_network_config(cfg: "Config", state: str) -> "AnsibleNetworkConfig":
                 "resource_group_id": cfg.resource_group_id,
                 "volume_size": cfg.monitoring.influxdb.volume_size,
             })
-        logger.debug("Wrote monitor Terraform vars file: %s" % ac.monitor_vars_file)
+        logger.debug("Wrote monitor Terraform vars file: %s" % ac.monitor_input_vars_file)
+
+    with open(ac.monitor_output_vars_template, "wt") as f:
+        f.write(MONITOR_OUTPUT_VARS_TEMPLATE)
 
     extra_vars = {
         "resource_group_id": cfg.resource_group_id,
         "state": state,
-        "monitor_vars_file": ac.monitor_vars_file,
-        "apply_monitoring": cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy,
+        "monitor_input_vars_file": ac.monitor_input_vars_file,
+        "monitor_output_vars_template": ac.monitor_output_vars_template,
+        "monitor_output_vars_file": ac.monitor_output_vars_file,
     }
     with open(ac.extra_vars_path, "wt") as f:
         yaml.safe_dump(extra_vars, f)
-    logger.debug("Wrote Ansible extravars file: %s" % ac.extra_vars_path)
+    logger.debug("Wrote Ansible monitoring extravars file: %s" % ac.extra_vars_path)
+
+    return ac
+
+
+def prepare_tendermint_config(cfg: "Config", state: str, amc: "AnsibleMonitorConfig", node_group: "NodeGroupConfig") -> "AnsibleTendermintConfig":
+    rg_path = prepare_config_folder(cfg)
+
+    ac = AnsibleTendermintConfig()
+    ac.resource_group_path = rg_path
+    ac.tendermint_path = os.path.join(rg_path, COMPONENT_TENDERMINT)
+    ac.node_group_path = os.path.join(ac.tendermint_path, node_group.name)
+    if not os.path.exists(ac.node_group_path):
+        os.makedirs(ac.node_group_path, mode=0o755, exist_ok=True)
+        logger.debug("Created folder: %s" % ac.node_group_path)
+    ac.extra_vars_path = os.path.join(ac.node_group_path, "ansible-extra-vars.yaml")
+    ac.tendermint_input_vars_file = os.path.join(ac.node_group_path, "tendermint.tfvars")
+
+    influxdb_url = cfg.monitoring.influxdb.url
+
+    # if we've deployed the monitoring server
+    if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
+        # try to load the output vars from the monitoring Terraform execution
+        with open(amc.monitor_output_vars_file, "rt") as f:
+            monitoring_outputs = yaml.safe_load(f)
+        if "influxdb_url" not in monitoring_outputs:
+            raise Exception("Missing variable \"influxdb_url\" in monitoring Terraform output variables file: %s" % amc.monitor_output_vars_file)
+        influxdb_url = monitoring_outputs["influxdb_url"]
+
+    with open(ac.tendermint_input_vars_file, "wt") as f:
+        f.write(TENDERMINT_VARS_TEMPLATE % {
+            "resource_group_id": cfg.resource_group_id,
+            "node_group": node_group.name,
+            "keypair_name": AWS_KEYPAIR_NAME,
+            "influxdb_url": influxdb_url,
+            "influxdb_password": cfg.monitoring.influxdb.password,
+            "instance_type": node_group.instance_type,
+            "volume_size": node_group.volume_size,
+            "nodes_useast1": node_group.get_region_count("us_east_1"),
+            "nodes_uswest1": node_group.get_region_count("us_west_1"),
+            "nodes_useast2": node_group.get_region_count("us_east_2"),
+            "nodes_apnortheast2": node_group.get_region_count("ap_northeast_2"),
+            "nodes_apsoutheast2": node_group.get_region_count("ap_southeast_2"),
+            "nodes_eucentral1": node_group.get_region_count("eu_central_1"),
+            "nodes_euwest1": node_group.get_region_count("eu_west_1"),
+        })
+
+    extra_vars = {
+        "resource_group_id": cfg.resource_group_id,
+        "node_group": node_group.name,
+        "state": state,
+        "tendermint_input_vars_file": ac.tendermint_input_vars_file,
+    }
+    with open(ac.extra_vars_path, "wt") as f:
+        yaml.safe_dump(extra_vars, f)
+    logger.debug("Wrote Ansible Tendermint extravars file: %s" % ac.extra_vars_path)
 
     return ac
 
@@ -294,17 +400,19 @@ class InfluxDBConfig:
     instance_type = "t3.small"
     volume_size = 8
     region = "us-east-1"
+    url = ""
     database = "tendermint"
     username = "tendermint"
     password = "changeme"
 
     def __repr__(self):
-        return "InfluxDBConfig(enabled=%s, deploy=%s, instance_type=%s, volume_size=%d, region=%s, database=%s, username=%s, password=%s)" % (
+        return "InfluxDBConfig(enabled=%s, deploy=%s, instance_type=%s, volume_size=%d, region=%s, url=%s, database=%s, username=%s, password=%s)" % (
             self.enabled,
             self.deploy,
             self.instance_type,
             self.volume_size,
             self.region,
+            self.url,
             self.database,
             self.username,
             self.password,
@@ -322,6 +430,9 @@ class InfluxDBConfig:
         if cfg.volume_size < 4:
             raise Exception("Volume size is not big enough for InfluxDB configuration - must be at least 4")
         cfg.region = v.get("region", cfg.region)
+        cfg.url = v.get("url", cfg.url)
+        if cfg.enabled and not cfg.deploy and len(cfg.url) == 0:
+            raise Exception("If InfluxDB monitoring is enabled and we are not deploying it ourselves, the InfluxDB URL must be specified")
         cfg.database = v.get("database", cfg.database)
         cfg.username = v.get("username", cfg.username)
         cfg.password = v.get("password", cfg.password)
@@ -382,6 +493,10 @@ class NodeGroupConfig:
         {"us-east-1": 4},
     ]
 
+    _counts_by_region = {
+        "us-east-1": 4,
+    }
+
     def __init__(self, name):
         self.name = name
 
@@ -400,11 +515,21 @@ class NodeGroupConfig:
             self.regions,
         )
 
+    def compute_counts_by_region(self):
+        self._counts_by_region = {}
+        for region in self.regions:
+            region_id = list(region.keys())[0]
+            region_count = list(region.values())[0]
+            self._counts_by_region[region_id] = region_count
+
     def get_node_count(self):
         count = 0
         for region in self.regions:
             count += list(region.values())[0]
         return count
+
+    def get_region_count(self, region):
+        return self._counts_by_region.get(region, 0)
 
     @classmethod
     def load(cls, name, v) -> "NodeGroupConfig":
@@ -450,6 +575,7 @@ class NodeGroupConfig:
         if "regions" not in v:
             raise Exception("Missing \"regions\" parameter for group %s" % name)
         cfg.regions = as_regions_count_map(v["regions"], "in \"tendermint_network\", group %s" % name)
+        cfg.compute_counts_by_region()
 
         return cfg
 
@@ -683,16 +809,25 @@ class Config:
             return Config.load(yaml.safe_load(f))
 
 
-class AnsibleNetworkConfig:
+class AnsibleMonitorConfig:
     """Configuration relevant to executing the Ansible scripts for
-    deploying/destroying the network."""
+    deploying/destroying the monitoring network."""
 
     resource_group_path = ""
-    extra_vars_path = ""
-
-    # Configuration for the "monitor" Terraform scripts
     monitor_path = ""
-    monitor_vars_file = ""
+    extra_vars_path = ""
+    monitor_input_vars_file = ""
+    monitor_output_vars_file = ""
+    monitor_output_vars_template = ""
+
+
+class AnsibleTendermintConfig:
+    resource_group_path = ""
+    tendermint_path = ""
+    node_group_path = ""
+    extra_vars_path = ""
+    tendermint_input_vars_file = ""
+    tendermint_output_vars_file = ""
 
 
 # -----------------------------------------------------------------------------
