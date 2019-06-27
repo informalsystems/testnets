@@ -79,7 +79,7 @@ variable "instance_type" {
 variable "telegraf_collection_interval" {
     type        = string
     description = "The default interval at which Telegraf must be configured to collect metrics from the Tendermint nodes"
-    default     = "10s"
+    default     = "5s"
 }
 
 variable "volume_size" {
