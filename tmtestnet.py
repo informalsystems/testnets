@@ -11,6 +11,9 @@ import string
 import sys
 import re
 import logging
+import subprocess
+import shlex
+import time
 
 import yaml
 import colorlog
@@ -31,6 +34,23 @@ ENV_VAR_MATCHERS = [
     re.compile(r"\$(?P<env_var_name>[A-Za-z0-9_]+)"),
 ]
 VALID_BROADCAST_TX_METHODS = {"async", "sync", "commit"}
+AWS_KEYPAIR_NAME = os.environ["AWS_KEYPAIR_NAME"]
+
+COMPONENT_MONITOR = "monitor"
+COMPONENT_TENDERMINT = "tendermint"
+COMPONENT_TMBENCH = "tm-bench"
+COMPONENTS = [
+    COMPONENT_MONITOR,
+    COMPONENT_TENDERMINT,
+    COMPONENT_TMBENCH,
+]
+
+MONITOR_VARS_TEMPLATE = """influxdb_password = \"%(influxdb_password)s\"
+keypair_name = \"%(keypair_name)s\"
+instance_type = \"%(instance_type)s\"
+group = \"%(resource_group_id)s\"
+volume_size = %(volume_size)d
+"""
 
 # The default logger is pretty plain and boring
 logger = logging.getLogger("")
@@ -91,6 +111,12 @@ def main():
         "start", 
         help="Start one or more node(s) or node group(s)",
     )
+    parser_network_start.add_argument(
+        "node_or_group_ids",
+        metavar="node_or_group_id",
+        nargs="*",
+        help="Zero or more node or group IDs of network node(s) to start. If this is not supplied, all nodes will be started."
+    )
 
     # network stop
     parser_network_stop = subparsers_network.add_parser(
@@ -116,18 +142,109 @@ def main():
     args = parser.parse_args()
 
     configure_logging(verbose=args.verbose)
-
     # Allow for interpolation of environment variables within YAML files
     configure_env_var_yaml_loading(fail_on_missing=args.fail_on_missing_envvars)
 
+    if args.command == "network":
+        if args.subcommand == "deploy":
+            tmtestnet(args.config, network_deploy, "network deploy")
+        elif args.subcommand == "destroy":
+            tmtestnet(args.config, network_destroy, "network destroy")
+    
+    logger.error("Command/sub-command currently not supported: %s %s", args.command, args.subcommand)
+    sys.exit(1)
+
+
+# -----------------------------------------------------------------------------
+#
+# Primary functionality
+#
+# -----------------------------------------------------------------------------
+
+
+def tmtestnet(cfg_file, fn, desc):
     try:
-        cfg = Config.load_from_file(args.config)
+        cfg = Config.load_from_file(cfg_file)
     except Exception as e:
-        logger.error("Failed to load configuration file: %s", args.config)
+        logger.error("Failed to load configuration file: %s", cfg_file)
         logger.error(e)
         sys.exit(1)
 
-    import pdb; pdb.set_trace()
+    try:
+        fn(cfg)
+        sys.exit(0)
+    except Exception as e:
+        logger.error("Failed to execute \"%s\" for configuration file: %s", desc, cfg_file)
+        logger.exception(e)
+        sys.exit(1)
+
+
+def network_deploy(cfg: "Config"):
+    """Deploys the network according to the given configuration."""
+    # ensure our resource group's path exists
+    ac = prepare_network_config(cfg, "present")
+    logger.info("Deploying network. This may take some time.")
+    sh([
+        "ansible-playbook", "-e", "@%s" % ac.extra_vars_path, "deploy.yaml",
+    ])
+    logger.info("Network successfully deployed!")
+
+
+def network_destroy(cfg: "Config"):
+    ac = prepare_network_config(cfg, "absent")
+    logger.info("Destroying network. This may take some time.")
+    sh([
+        "ansible-playbook", "-e", "@%s" % ac.extra_vars_path, "deploy.yaml",
+    ])
+    logger.info("Network successfully destroyed!")
+
+
+def prepare_config_folder(cfg: "Config"):
+    rg_path = os.path.join(os.path.expanduser("~"), ".tmtestnet", cfg.resource_group_id)
+    os.makedirs(rg_path, mode=0o755, exist_ok=True)
+    logger.debug("Path present: %s" % rg_path)
+    # ensure the relevant paths are present for each component of the network
+    for subpath in COMPONENTS:
+        sp = os.path.join(rg_path, subpath)
+        os.makedirs(sp, mode=0o755, exist_ok=True)
+        logger.debug("Path present: %s" % sp)
+    return rg_path
+
+
+def prepare_network_config(cfg: "Config", state: str) -> "AnsibleNetworkConfig":
+    """Ensures that the ~/.tmtestnet/ folder exists and that the relevant
+    resource group ID's folder is present."""
+    rg_path = prepare_config_folder(cfg)
+    
+    ac = AnsibleNetworkConfig()
+    ac.resource_group_path = rg_path
+    ac.extra_vars_path = os.path.join(rg_path, "extra-vars.yaml")
+    ac.monitor_path = os.path.join(rg_path, COMPONENT_MONITOR)
+    ac.monitor_vars_file = os.path.join(ac.monitor_path, "monitor.tfvars")
+
+    # dump the monitor-related variables
+    if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
+        with open(ac.monitor_vars_file, "wt") as f:
+            f.write(MONITOR_VARS_TEMPLATE % {
+                "influxdb_password": cfg.monitoring.influxdb.password,
+                "keypair_name": AWS_KEYPAIR_NAME,
+                "instance_type": cfg.monitoring.influxdb.instance_type,
+                "resource_group_id": cfg.resource_group_id,
+                "volume_size": cfg.monitoring.influxdb.volume_size,
+            })
+        logger.debug("Wrote monitor Terraform vars file: %s" % ac.monitor_vars_file)
+
+    extra_vars = {
+        "resource_group_id": cfg.resource_group_id,
+        "state": state,
+        "monitor_vars_file": ac.monitor_vars_file,
+        "apply_monitoring": cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy,
+    }
+    with open(ac.extra_vars_path, "wt") as f:
+        yaml.safe_dump(extra_vars, f)
+    logger.debug("Wrote Ansible extravars file: %s" % ac.extra_vars_path)
+
+    return ac
 
 
 # -----------------------------------------------------------------------------
@@ -174,15 +291,19 @@ class InfluxDBConfig:
 
     enabled = False
     deploy = False
+    instance_type = "t3.small"
+    volume_size = 8
     region = "us-east-1"
     database = "tendermint"
     username = "tendermint"
     password = "changeme"
 
     def __repr__(self):
-        return "InfluxDBConfig(enabled=%s, deploy=%s, region=%s, database=%s, username=%s, password=%s)" % (
+        return "InfluxDBConfig(enabled=%s, deploy=%s, instance_type=%s, volume_size=%d, region=%s, database=%s, username=%s, password=%s)" % (
             self.enabled,
             self.deploy,
+            self.instance_type,
+            self.volume_size,
             self.region,
             self.database,
             self.username,
@@ -196,6 +317,10 @@ class InfluxDBConfig:
         cfg = InfluxDBConfig()
         cfg.enabled = v.get("enabled", cfg.enabled)
         cfg.deploy = v.get("deploy", cfg.deploy)
+        cfg.instance_type = v.get("instance_type", cfg.instance_type)
+        cfg.volume_size = int(v.get("volume_size", cfg.volume_size))
+        if cfg.volume_size < 4:
+            raise Exception("Volume size is not big enough for InfluxDB configuration - must be at least 4")
         cfg.region = v.get("region", cfg.region)
         cfg.database = v.get("database", cfg.database)
         cfg.username = v.get("username", cfg.username)
@@ -244,6 +369,8 @@ class NodeGroupConfig:
     """Configuration for a single group of Tendermint nodes."""
 
     name = ""
+    instance_type = "t3.small"
+    volume_size = 8
     tendermint = "v0.31.7"
     validators = True
     in_genesis = True
@@ -259,8 +386,10 @@ class NodeGroupConfig:
         self.name = name
 
     def __repr__(self):
-        return "NodeGroupConfig(name=%s, tendermint=%s, validators=%s, in_genesis=%s, start=%s, config_template=%s, use_seeds=%s, persistent_peers=%s, regions=%s)" % (
+        return "NodeGroupConfig(name=%s, instance_type=%s, volume_size=%d, tendermint=%s, validators=%s, in_genesis=%s, start=%s, config_template=%s, use_seeds=%s, persistent_peers=%s, regions=%s)" % (
             self.name,
+            self.instance_type,
+            self.volume_size,
             self.tendermint,
             self.validators,
             self.in_genesis,
@@ -282,6 +411,11 @@ class NodeGroupConfig:
         if not isinstance(v, dict):
             raise Exception("Expected node group configuration for %s to be key/value mappings" % name)
         cfg = NodeGroupConfig(name)
+        cfg.instance_type = v.get("instance_type", cfg.instance_type)
+        cfg.volume_size = int(v.get("volume_size", cfg.volume_size))
+        if cfg.volume_size < 4:
+            raise Exception("Volume size is not big enough for node group %s - must be at least 4" % name)
+
         if "tendermint" in v:
             cfg.tendermint = v["tendermint"]
             # if it's a filesystem path
@@ -549,6 +683,18 @@ class Config:
             return Config.load(yaml.safe_load(f))
 
 
+class AnsibleNetworkConfig:
+    """Configuration relevant to executing the Ansible scripts for
+    deploying/destroying the network."""
+
+    resource_group_path = ""
+    extra_vars_path = ""
+
+    # Configuration for the "monitor" Terraform scripts
+    monitor_path = ""
+    monitor_vars_file = ""
+
+
 # -----------------------------------------------------------------------------
 #
 # Utilities
@@ -556,12 +702,35 @@ class Config:
 # -----------------------------------------------------------------------------
 
 
+def sh(cmd):
+    logger.info("Executing command: %s" % " ".join(cmd))
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as p:
+        print("")
+        for line in p.stdout:
+            print(line.decode("utf-8").rstrip())
+        while p.poll() is None:
+            time.sleep(1)
+        print("")
+    
+        if p.returncode != 0:
+            raise Exception("Process failed with return code %d" % p.returncode)
+
+
 def configure_logging(verbose=False):
     """Supercharge our logger."""
     handler = colorlog.StreamHandler()
-    handler.setFormatter(colorlog.ColoredFormatter(
-        "%(log_color)s%(asctime)s\t%(levelname)s\t%(message)s",
-    ))
+    handler.setFormatter(
+        colorlog.ColoredFormatter(
+            "%(log_color)s%(asctime)s\t%(levelname)s\t%(message)s",
+            log_colors={
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "bold_yellow",
+                "ERROR": "bold_red",
+                "CRITICAL": "bold_red",
+            }
+        ),
+    )
     logger.addHandler(handler)
     logger.setLevel(logging.DEBUG if verbose else logging.INFO)
 
