@@ -1,0 +1,24 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: no
+  tasks:
+    - name: Apply monitoring service configuration
+      terraform:
+        project_path: ./monitor
+        variables_file: "{{ monitor_input_vars_file }}"
+        state: "{{ state }}"
+        force_init: yes
+        workspace: "{{ resource_group_id }}"
+      register: monitoring
+    
+    - name: Dump output variables to file
+      template:
+        src: "{{ monitor_output_vars_template }}"
+        dest: "{{ monitor_output_vars_file }}"
+      when: state == "present"
+
+    - name: Add deployed monitoring node SSH key to local known_hosts
+      shell: |
+        ssh-keyscan {{ monitoring.outputs.host.value.public_dns }} >> ~/.ssh/known_hosts
+      when: state == "present"
