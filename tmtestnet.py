@@ -227,12 +227,12 @@ def network_destroy(cfg: "Config"):
 
     # destroy node clusters backwards
     for node_group in cfg.tendermint_network.node_group_configs:
-        logger.info("Deploying Tendermint node group: %s", node_group.name)
-        atc = prepare_tendermint_config(cfg, "present", amc, node_group)
+        logger.info("Destroying Tendermint node group: %s", node_group.name)
+        atc = prepare_tendermint_config(cfg, "absent", amc, node_group)
         sh([
             "ansible-playbook", "-e", "@%s" % atc.extra_vars_path, "tendermint.yaml",
         ])
-        logger.info("Tendermint network successfully deployed!")
+        logger.info("Tendermint network successfully destroyed!")
 
     # if we've previously deployed the monitoring
     if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
