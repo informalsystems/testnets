@@ -16,6 +16,6 @@ local-vars.yaml
 # Python-related
 /.venv/
 
-# tmtestnet-related, so you can use this file locally without accidentally
-#committing to the repo
-/tmtestnet.yaml
+# Use this folder for your own test network configurations. You can commit this
+# folder to a separate repository for version control.
+/mytestnets/
