@@ -144,8 +144,8 @@ def main():
     configure_env_var_yaml_loading(fail_on_missing=args.fail_on_missing_envvars)
 
     kwargs = {
-        "aws_keypair_name": getattr(args, "aws_keypair_name", default_aws_keypair_name),
-        "ec2_private_key_path": getattr(args, "ec2_private_key", default_ec2_private_key),
+        "aws_keypair_name": os.environ.get("AWS_KEYPAIR_NAME", getattr(args, "aws_keypair_name", default_aws_keypair_name)),
+        "ec2_private_key_path": os.environ.get("EC2_PRIVATE_KEY", getattr(args, "ec2_private_key", default_ec2_private_key)),
         "keep_existing_tendermint_config": getattr(args, "keep_existing_tendermint_config", False),
     }
     sys.exit(tmtestnet(args.config, args.command, args.subcommand, **kwargs))
