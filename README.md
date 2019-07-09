@@ -17,8 +17,9 @@ At present, there are several networks provided:
 In the root of this repository you'll find a script called `tmtestnet.py` that
 aims to programmatically and automatically combine the execution of the above
 Terraform and Ansible scripts to allow you to deploy relatively complex
-Tendermint **test networks** with ease. **NOTE**: This is not intended for
-production use.
+Tendermint **test networks** with ease.
+
+**NOTE: This is not intended for production use.**
 
 ### Requirements
 In order to use the `tmtestnet` tool, you will need the following software
