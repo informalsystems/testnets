@@ -1136,21 +1136,25 @@ def parse_regions_list(regions_list: list, ctx: str) -> OrderedDictType[str, Tes
     return result
 
 
-def get_host_keys(hostname):
+def get_host_keys(hostname, retries=3, retry_wait=5):
     """Calls ssh-keyscan for the given hostname to get its keys."""
-    logger.debug("Scanning keys for host: %s", hostname)
-    keys = []
-    with subprocess.Popen(["ssh-keyscan", hostname], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as p:
-        for line in p.stdout:
-            key = line.decode("utf-8").rstrip()
-            if len(key) > 0:
-                keys.append(key)
-        while p.poll() is None:
-            time.sleep(1)
+    for i in range(retries):
+        logger.debug("Scanning keys for host: %s", hostname)
+        keys = []
+        with subprocess.Popen(["ssh-keyscan", hostname], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as p:
+            for line in p.stdout:
+                key = line.decode("utf-8").rstrip()
+                if len(key) > 0:
+                    keys.append(key)
+            while p.poll() is None:
+                time.sleep(1)
 
-        if p.returncode != 0:
-            raise Exception("Call to ssh-keyscan failed with return code %d" % p.returncode)
-    return keys
+            if p.returncode == 0:
+                return keys
+            elif i < (retries-1):
+                logger.warning("ssh-keyscan failed with return code %d - trying again in %d seconds" % (p.returncode, retry_wait))
+                time.sleep(retry_wait)
+    raise Exception("Call to ssh-keyscan failed with return code %d" % p.returncode)
 
 
 def clear_host_keys(hostname):
