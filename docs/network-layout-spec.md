@@ -15,6 +15,7 @@ proposed tool:
 # A global identifier to apply across the entire test network. Will be added
 # to the `Group` tags on all created AWS resources. This identifier is included
 # in metrics submitted from the Tendermint nodes in this network.
+# This is also used as the Tendermint network chain ID.
 id: testnet_abcd
 
 # Configuration relating to monitoring of the Tendermint network nodes. Right
