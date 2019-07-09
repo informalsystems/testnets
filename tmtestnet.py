@@ -24,6 +24,7 @@ import pwd
 import json
 import datetime
 import base64
+import tempfile
 
 import yaml
 import colorlog
@@ -115,11 +116,29 @@ def main():
         nargs="*",
         help="Zero or more node or group IDs of network node(s) to start. If this is not supplied, all nodes will be started."
     )
+    parser_network_start.add_argument(
+        "--no-fail-on-missing",
+        default=False,
+        action="store_true",
+        help="By default, this command fails if a group/node reference has not yet been deployed. Specifying this flag will just skip that group/node instead.",
+    )
 
     # network stop
     parser_network_stop = subparsers_network.add_parser(
         "stop", 
         help="Stop one or more node(s) or node group(s)",
+    )
+    parser_network_stop.add_argument(
+        "node_or_group_ids",
+        metavar="node_or_group_id",
+        nargs="*",
+        help="Zero or more node or group IDs of network node(s) to stop. If this is not supplied, all nodes will be stopped."
+    )
+    parser_network_stop.add_argument(
+        "--no-fail-on-missing",
+        default=False,
+        action="store_true",
+        help="By default, this command fails if a group/node reference has not yet been deployed. Specifying this flag will just skip that group/node instead.",
     )
 
     # loadtest
@@ -147,6 +166,8 @@ def main():
         "aws_keypair_name": os.environ.get("AWS_KEYPAIR_NAME", getattr(args, "aws_keypair_name", default_aws_keypair_name)),
         "ec2_private_key_path": os.environ.get("EC2_PRIVATE_KEY", getattr(args, "ec2_private_key", default_ec2_private_key)),
         "keep_existing_tendermint_config": getattr(args, "keep_existing_tendermint_config", False),
+        "node_or_group_ids": getattr(args, "node_or_group_ids", []),
+        "fail_on_missing": not getattr(args, "no_fail_on_missing", False),
     }
     sys.exit(tmtestnet(args.config, args.command, args.subcommand, **kwargs))
 
@@ -269,6 +290,10 @@ def tmtestnet(cfg_file, command, subcommand, **kwargs) -> int:
             fn = network_deploy
         elif subcommand == "destroy":
             fn = network_destroy
+        elif subcommand == "start":
+            fn = network_start
+        elif subcommand == "stop":
+            fn = network_stop
 
     if fn is None:    
         logger.error("Command/sub-command not yet supported: %s %s", command, subcommand)
@@ -330,6 +355,15 @@ def network_deploy(cfg: "TestnetConfig", **kwargs):
             node_group_cfg.regions,
         )
 
+    # then we ensure that all Tendermint services have been stopped, if we have
+    # anything at all running at the moment, otherwise this could cause problems
+    network_stop(
+        cfg, 
+        fail_on_missing=False, 
+        fail_on_error=False, 
+        ec2_private_key_path=ec2_private_key_path,
+    )
+
     # generate the Tendermint network configuration
     tendermint_config = OrderedDict()
     for node_group_name, node_group_outputs in tendermint_outputs.items():
@@ -385,6 +419,42 @@ def network_destroy(cfg: "TestnetConfig", **kwargs):
 
     if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
         terraform_destroy_monitoring(os.path.join(testnet_home, "monitoring"))
+
+
+def network_state(cfg: "TestnetConfig", state: str, **kwargs):
+    fail_on_missing = kwargs.get("fail_on_missing", True)
+    fail_on_error = kwargs.get("fail_on_error", True)
+    ec2_private_key_path = kwargs.get("ec2_private_key_path", None)
+    if not os.path.exists(ec2_private_key_path):
+        raise Exception("Cannot find EC2 private key: %s" % ec2_private_key_path)
+
+    testnet_home = os.path.join(cfg.home, cfg.id)
+    target_refs = as_testnet_node_refs(
+        kwargs.get("node_or_group_ids", []),
+        "from command line parameter(s)",
+    )
+    # if we have no targets, assume all groups are targets
+    if len(target_refs) == 0:
+        for node_group_name, _ in cfg.tendermint_network.items():
+            target_refs.append(TestnetNodeRef(group=node_group_name))
+    logger.info("Attempting to change state of network component(s): %s", testnet_node_refs_to_str(target_refs))
+    ansible_set_tendermint_nodes_state(
+        os.path.join(testnet_home, "tendermint"),
+        target_refs,
+        state,
+        ec2_private_key_path,
+        fail_on_missing=fail_on_missing,
+        fail_on_error=fail_on_error,
+    )
+    logger.info("Successfully changed state of network component(s)")
+
+
+def network_start(cfg: "TestnetConfig", **kwargs):
+    network_state(cfg, "started", **kwargs)
+
+
+def network_stop(cfg: "TestnetConfig", **kwargs):
+    network_state(cfg, "stopped", **kwargs)
 
 
 # -----------------------------------------------------------------------------
@@ -869,6 +939,76 @@ def ansible_deploy_tendermint_node_group(
     ])
 
 
+def ansible_set_tendermint_nodes_state(
+    workdir: str,
+    refs: List[TestnetNodeRef],
+    state: str,
+    ec2_private_key_path: str,
+    fail_on_missing: bool = True,
+    fail_on_error: bool = True,
+):
+    """Attempts to collect all nodes' details from the given references list
+    and ensure that they are all set to the desired state (Ansible state)."""
+    valid_states = ["started", "stopped", "restarted"]
+    if state not in valid_states:
+        raise Exception("Desired service state must be one of: %s", ", ".join(valid_states))
+    hostnames = set()
+    for ref in refs:
+        node_group_path = os.path.join(workdir, ref.group)
+        output_vars_file = os.path.join(node_group_path, "output-vars.yaml")
+        if not os.path.isfile(output_vars_file):
+            if fail_on_missing:
+                raise Exception("Missing output variables for node group: %s - has this node group been deployed yet?" % output_vars_file)
+            else:
+                logger.info("Node group has not yet been deployed, skipping: %s", ref.group)
+                continue
+        output_vars = load_yaml_config(output_vars_file)
+        if ref.id is None:
+            # add all hosts for this node group
+            for hostname in output_vars["inventory_ordered"]:
+                hostnames.add(hostname)
+        else:
+            # add the specific host
+            if ref.id < 0 or ref.id >= len(output_vars["inventory_ordered"]):
+                raise Exception(
+                    "Invalid ID %d for host in node group %s (this group has %d entries)" % (
+                        ref.id, ref.group, len(output_vars["inventory_ordered"],
+                    )))
+            hostnames.add(output_vars["inventory_ordered"][0])
+
+    if len(hostnames) == 0:
+        logger.info("No deployed hosts' states to change")
+        return
+
+    logger.info("Setting deployed hosts' state to \"%s\": %s", state, ", ".join(hostnames))
+
+    ok = True
+    with tempfile.TemporaryDirectory() as tmpdir:
+        inventory_file = os.path.join(tmpdir, "inventory")
+        with open(inventory_file, "wt") as f:
+            f.write("[tendermint]\n")
+            for hostname in hostnames:
+                f.write("%s\n" % hostname)
+        
+        try:
+            sh([
+                "ansible-playbook",
+                "-i", inventory_file,
+                "-u", "ec2-user",
+                "-e", "state=%s" % state,
+                "--private-key", ec2_private_key_path,
+                os.path.join("tendermint", "ansible", "tendermint-state.yaml"),
+            ])
+        except Exception as e:
+            ok = False
+            if fail_on_error:
+                raise e
+            logger.info("Could not change host(s') state - skipping")
+
+    if ok:
+        logger.info("Hosts' state successfully set to \"%s\"", state)
+
+
 # -----------------------------------------------------------------------------
 #
 #   Utilities
@@ -988,6 +1128,14 @@ def as_testnet_node_refs(l: List[str], ctx: str) -> List[TestnetNodeRef]:
         _l.append(as_testnet_node_ref(s, "entry %d, %s" % (i, ctx)))
         i += 1
     return _l
+
+
+def testnet_node_ref_to_str(ref: TestnetNodeRef) -> str:
+    return ("%s" % ref.group) if ref.id is None else ("%s[%d]" % (ref.group, ref.id))
+
+
+def testnet_node_refs_to_str(refs: List[TestnetNodeRef]) -> str:
+    return ", ".join([testnet_node_ref_to_str(ref) for ref in refs])
 
 
 def github_release_url(filename, version):
