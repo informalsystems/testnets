@@ -25,6 +25,8 @@ Tendermint **test networks** with ease.
 In order to use the `tmtestnet` tool, you will need the following software
 preinstalled:
 
+* [Tendermint](https://tendermint.com/) (specifically for the
+  `tendermint testnet` command)
 * Python 3.7+
 * [Terraform](https://www.terraform.io/)
 * An [AWS](https://aws.amazon.com/) account
