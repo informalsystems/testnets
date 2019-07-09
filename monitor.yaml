@@ -11,6 +11,9 @@
         force_init: yes
         workspace: "{{ resource_group_id }}"
       register: monitoring
+
+    - debug:
+        var: monitoring
     
     - name: Dump output variables to file
       template:
