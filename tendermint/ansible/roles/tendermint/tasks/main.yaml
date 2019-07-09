@@ -24,6 +24,13 @@
     src: "{{ tendermint_binary }}"
     dest: /usr/bin/tendermint
 
+- name: Ensure correct Tendermint binary permissions
+  file:
+    path: /usr/bin/tendermint
+    mode: 0755
+    owner: "{{ tendermint_user }}"
+    group: "{{ tendermint_group }}"
+
 - name: Delete any existing Tendermint configuration/data
   file: path=/home/tendermint/.tendermint state=absent
 
@@ -47,5 +54,5 @@
 - name: Reload systemd
   systemd: daemon_reload=yes
 
-- name: Start Tendermint
-  service: name=tendermint state=started
+- name: Set Tendermint service to appropriate state
+  service: "name=tendermint state={{ tendermint_state }}"
