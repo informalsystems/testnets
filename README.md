@@ -134,12 +134,12 @@ service running on the host without stopping the host itself.
 # Start all nodes in the network
 ./tmtestnet.py -c mytestnets/testnet1.yaml -v network start
 
-# Start one particular group of hosts by its logical group name (defined in 
-# mytestnets/testnet1.yaml)
+# Start one particular group of hosts by its logical group name (defined in mytestnets/testnet1.yaml)
 ./tmtestnet.py -c mytestnets/testnet1.yaml -v network start my_validators
 
-# Stop just one specific node within a particular logical group
-./tmtestnet.py -c mytestnets/testnet1.yaml -v network stop my_validators[0]
+# Stop just one specific node within a particular logical group (it's generally a good idea to
+# enclose these references in "quotation marks" to avoid having the shell try to interpret them)
+./tmtestnet.py -c mytestnets/testnet1.yaml -v network stop "my_validators[0]"
 ```
 
 ### Destroy the Network
