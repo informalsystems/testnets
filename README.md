@@ -26,8 +26,7 @@ In order to use the `tmtestnet` tool, you will need the following software
 preinstalled:
 
 * Python 3.7+
-* Terraform
-* Ansible
+* [Terraform](https://www.terraform.io/)
 * An [AWS](https://aws.amazon.com/) account
 * The [AWS CLI](https://aws.amazon.com/cli/) installed
 
@@ -48,7 +47,8 @@ python3 -m venv venv
 # Activate your Python virtual environment
 source venv/bin/activate
 
-# Install dependencies for tmtestnet
+# Install dependencies for tmtestnet (this will install Ansible, amongst other
+# dependencies, into your virtual environment)
 pip install -r requirements.txt
 ```
 
