@@ -15,6 +15,7 @@ local-vars.yaml
 
 # Python-related
 /.venv/
+/venv/
 __pycache__
 
 # Use this folder for your own test network configurations. You can commit this
