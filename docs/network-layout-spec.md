@@ -93,9 +93,8 @@ tendermint_network:
       tendermint: v0.31.7
       # We don't want our seed nodes to be validators
       validators: no
+      # Be sure to set seed_mode = true in this configuration template
       config_template: ./seednode-config.toml
-      # We want these nodes to be seeds
-      seeds: yes
       # Where to deploy seed nodes for this group
       regions:
         - us_east_1: 1    # my_seeds[0]
