@@ -6,5 +6,6 @@
   vars:
     tendermint_user: tendermint
     tendermint_group: tendermint
+    tendermint_state: restarted
   roles:
     - tendermint

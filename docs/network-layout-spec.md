@@ -23,21 +23,24 @@ id: testnet_abcd
 monitoring:
   # Any SignalFX-related configuration parameters will go here.
   signalfx:
+    enabled: no
     api_token: $SIGNALFX_API_TOKEN
     realm: $SIGNALFX_REALM
 
   influxdb:
+    enabled: yes
     # Set to `yes` to deploy the Grafana/InfluxDB monitoring server. If set to
     # `no`, you will need to supply InfluxDB details to which to send the
     # metrics.
     deploy: yes
 
-    # Where do you want to deploy the monitoring server? (Can also use
-    # notation: `us_east_1`)
+    # Where do you want to deploy the monitoring server?
     region: us-east-1
 
     # If deploy is set to `no`, the InfluxDB URL is required.
     #url: https://your-own-influxdb-host:8086
+
+    # These options can't be changed at the moment.
     #database: tendermint
     #username: tendermint
 
@@ -143,7 +146,7 @@ load_tests:
         # Can specify an entire group to connect to all endpoints
         - my_validators
         # Can specify a single node within a group
-        - late_joiners[0]
+        - late_joiner_validators[0]
       
       # The number of seconds for which to run the load test
       time: 120
@@ -172,7 +175,7 @@ For example, one should simply be able to run something like:
 
 ```bash
 # By default, the tool should look for a file called `tmtestnet.yaml` or
-# `tmtestnet.yml` in the current folder. Override with --config parameter.
+# in the current folder. Override with --config parameter.
 
 # Deploy the network (creating all AWS resources)
 tmtestnet network deploy

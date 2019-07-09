@@ -79,7 +79,7 @@ variable "instance_type" {
 variable "telegraf_collection_interval" {
     type        = string
     description = "The default interval at which Telegraf must be configured to collect metrics from the Tendermint nodes"
-    default     = "10s"
+    default     = "5s"
 }
 
 variable "volume_size" {
@@ -98,9 +98,21 @@ variable "nodes_useast1" {
     default     = 4
 }
 
+variable "startid_useast1" {
+    type        = number
+    description = "The starting ID for Tendermint nodes in us-east-1"
+    default     = 0
+}
+
 variable "nodes_uswest1" {
     type        = number
     description = "The number of Tendermint nodes to launch in us-west-1"
+    default     = 0
+}
+
+variable "startid_uswest1" {
+    type        = number
+    description = "The starting ID for Tendermint nodes in us-west-1"
     default     = 0
 }
 
@@ -110,9 +122,21 @@ variable "nodes_useast2" {
     default     = 0
 }
 
+variable "startid_useast2" {
+    type        = number
+    description = "The starting ID for Tendermint nodes in us-east-2"
+    default     = 0
+}
+
 variable "nodes_apnortheast2" {
     type        = number
     description = "The number of Tendermint nodes to launch in ap-northeast-2"
+    default     = 0
+}
+
+variable "startid_apnortheast2" {
+    type        = number
+    description = "The starting ID for Tendermint nodes in ap-northeast-2"
     default     = 0
 }
 
@@ -122,9 +146,21 @@ variable "nodes_apsoutheast2" {
     default     = 0
 }
 
+variable "startid_apsoutheast2" {
+    type        = number
+    description = "The starting ID for Tendermint nodes in ap-southeast-2"
+    default     = 0
+}
+
 variable "nodes_eucentral1" {
     type        = number
     description = "The number of Tendermint nodes to launch in eu-central-1"
+    default     = 0
+}
+
+variable "startid_eucentral1" {
+    type        = number
+    description = "The starting ID for Tendermint nodes in eu-central-1"
     default     = 0
 }
 
@@ -134,31 +170,37 @@ variable "nodes_euwest1" {
     default     = 0
 }
 
-output "hosts_useast1" {
+variable "startid_euwest1" {
+    type        = number
+    description = "The starting ID for Tendermint nodes in eu-west-1"
+    default     = 0
+}
+
+output "us_east_1" {
     value = module.tendermint_useast1.hosts
 }
 
-output "hosts_uswest1" {
+output "us_west_1" {
     value = module.tendermint_uswest1.hosts
 }
 
-output "hosts_useast2" {
+output "us_east_2" {
     value = module.tendermint_useast2.hosts
 }
 
-output "hosts_apnortheast2" {
+output "ap_northeast_2" {
     value = module.tendermint_apnortheast2.hosts
 }
 
-output "hosts_apsoutheast2" {
+output "ap_southeast_2" {
     value = module.tendermint_apsoutheast2.hosts
 }
 
-output "hosts_eucentral1" {
+output "eu_central_1" {
     value = module.tendermint_eucentral1.hosts
 }
 
-output "hosts_euwest1" {
+output "eu_west_1" {
     value = module.tendermint_euwest1.hosts
 }
 
@@ -177,7 +219,7 @@ module "tendermint_useast1" {
     influxdb_url                 = "${var.influxdb_url}"
     influxdb_password            = "${var.influxdb_password}"
     volume_size                  = "${var.volume_size}"
-    node_start_id                = 0
+    node_start_id                = var.startid_useast1
 }
 
 module "tendermint_uswest1" {
@@ -195,7 +237,7 @@ module "tendermint_uswest1" {
     influxdb_url                 = "${var.influxdb_url}"
     influxdb_password            = "${var.influxdb_password}"
     volume_size                  = "${var.volume_size}"
-    node_start_id                = "${var.nodes_useast1}"
+    node_start_id                = var.startid_uswest1
 }
 
 module "tendermint_useast2" {
@@ -213,7 +255,7 @@ module "tendermint_useast2" {
     influxdb_url                 = "${var.influxdb_url}"
     influxdb_password            = "${var.influxdb_password}"
     volume_size                  = "${var.volume_size}"
-    node_start_id                = "${var.nodes_useast1+var.nodes_uswest1}"
+    node_start_id                = var.startid_useast2
 }
 
 module "tendermint_apnortheast2" {
@@ -231,7 +273,7 @@ module "tendermint_apnortheast2" {
     influxdb_url                 = "${var.influxdb_url}"
     influxdb_password            = "${var.influxdb_password}"
     volume_size                  = "${var.volume_size}"
-    node_start_id                = "${var.nodes_useast1+var.nodes_uswest1+var.nodes_useast2}"
+    node_start_id                = var.startid_apnortheast2
 }
 
 module "tendermint_apsoutheast2" {
@@ -249,7 +291,7 @@ module "tendermint_apsoutheast2" {
     influxdb_url                 = "${var.influxdb_url}"
     influxdb_password            = "${var.influxdb_password}"
     volume_size                  = "${var.volume_size}"
-    node_start_id                = "${var.nodes_useast1+var.nodes_uswest1+var.nodes_useast2+var.nodes_apnortheast2}"
+    node_start_id                = var.startid_apsoutheast2
 }
 
 module "tendermint_eucentral1" {
@@ -267,7 +309,7 @@ module "tendermint_eucentral1" {
     influxdb_url                 = "${var.influxdb_url}"
     influxdb_password            = "${var.influxdb_password}"
     volume_size                  = "${var.volume_size}"
-    node_start_id                = "${var.nodes_useast1+var.nodes_uswest1+var.nodes_useast2+var.nodes_apnortheast2+var.nodes_apsoutheast2}"
+    node_start_id                = var.startid_eucentral1
 }
 
 module "tendermint_euwest1" {
@@ -285,5 +327,5 @@ module "tendermint_euwest1" {
     influxdb_url                 = "${var.influxdb_url}"
     influxdb_password            = "${var.influxdb_password}"
     volume_size                  = "${var.volume_size}"
-    node_start_id                = "${var.nodes_useast1+var.nodes_uswest1+var.nodes_useast2+var.nodes_apnortheast2+var.nodes_apsoutheast2+var.nodes_eucentral1}"
+    node_start_id                = var.startid_euwest1
 }

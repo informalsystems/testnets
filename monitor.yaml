@@ -1,0 +1,22 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: no
+  tasks:
+    - name: Apply monitoring service configuration
+      terraform:
+        project_path: ./monitor
+        variables_file: "{{ input_vars_file }}"
+        state: "{{ state }}"
+        force_init: yes
+        workspace: "{{ resource_group_id }}"
+      register: monitoring
+
+    - debug:
+        var: monitoring
+    
+    - name: Dump output variables to file
+      template:
+        src: "{{ output_vars_template }}"
+        dest: "{{ output_vars_file }}"
+      when: state == "present"

@@ -1,0 +1,22 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+  become: no
+  tasks:
+    - name: Apply Tendermint AWS configuration
+      terraform:
+        project_path: ./tendermint/terraform
+        variables_file: "{{ input_vars_file }}"
+        state: "{{ state }}"
+        force_init: yes
+        workspace: "{{ resource_group_id }}__{{ node_group }}"
+      register: tendermint
+
+    - debug:
+        var: tendermint
+    
+    - name: Write Tendermint output variables
+      template:
+        src: "{{ output_vars_template }}"
+        dest: "{{ output_vars_file }}"
+      when: state == "present"

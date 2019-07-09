@@ -12,3 +12,11 @@
 *.retry
 hosts
 local-vars.yaml
+
+# Python-related
+/.venv/
+__pycache__
+
+# Use this folder for your own test network configurations. You can commit this
+# folder to a separate repository for version control.
+/mytestnets/

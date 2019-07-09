@@ -95,6 +95,7 @@ EOF
     tags      = {
         Name  = "Tendermint Node ${count.index+var.node_start_id} (${var.group})"
         ID    = "node${count.index+var.node_start_id}"
+        Class = "tendermint"
         Group = "${var.group}"
     }
 

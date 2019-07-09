@@ -119,6 +119,7 @@ EOF
     tags      = {
         Name  = "Tendermint tm-bench ${count.index} (${var.group})"
         ID    = "tmbench${count.index}"
+        Class = "tmbench"
         Group = "${var.group}"
     }
 
