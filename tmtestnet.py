@@ -380,7 +380,7 @@ def network_deploy(cfg: "TestnetConfig", **kwargs):
 def network_destroy(cfg: "TestnetConfig", **kwargs):
     """Destroys the network according to the given configuration."""
     testnet_home = os.path.join(cfg.home, cfg.id)
-    for name, _ in cfg.tendermint_network.items():
+    for name, _ in reversed(cfg.tendermint_network.items()):
         terraform_destroy_tendermint_node_group(os.path.join(testnet_home, "tendermint", name))
 
     if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
@@ -1136,7 +1136,7 @@ def parse_regions_list(regions_list: list, ctx: str) -> OrderedDictType[str, Tes
     return result
 
 
-def get_host_keys(hostname, retries=3, retry_wait=5):
+def get_host_keys(hostname, retries=10, retry_wait=5):
     """Calls ssh-keyscan for the given hostname to get its keys."""
     for i in range(retries):
         logger.debug("Scanning keys for host: %s", hostname)
@@ -1149,10 +1149,10 @@ def get_host_keys(hostname, retries=3, retry_wait=5):
             while p.poll() is None:
                 time.sleep(1)
 
-            if p.returncode == 0:
+            if p.returncode == 0 and len(keys) > 0:
                 return keys
             elif i < (retries-1):
-                logger.warning("ssh-keyscan failed with return code %d - trying again in %d seconds" % (p.returncode, retry_wait))
+                logger.warning("ssh-keyscan failed with return code %d and %d keys - trying again in %d seconds" % (p.returncode, len(keys), retry_wait))
                 time.sleep(retry_wait)
     raise Exception("Call to ssh-keyscan failed with return code %d" % p.returncode)
 
