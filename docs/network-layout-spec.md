@@ -39,6 +39,8 @@ monitoring:
 
     # If deploy is set to `no`, the InfluxDB URL is required.
     #url: https://your-own-influxdb-host:8086
+
+    # These options can't be changed at the moment.
     #database: tendermint
     #username: tendermint
 
