@@ -1,0 +1,52 @@
+---
+- name: Check if ABCI app service is present
+  stat: "path=/etc/systemd/system/{{ abci.name }}.service"
+  register: svc
+
+- name: Stop ABCI app service if present
+  service: "name={{ abci.name }} state=stopped"
+  when: svc.stat.exists
+
+- name: Ensure ABCI app service group exists
+  group:
+    name: "{{ abci.group }}"
+    state: present
+
+- name: Ensure ABCI app service user exists
+  user:
+    name: "{{ abci.user }}"
+    shell: /bin/bash
+    home: "/home/{{ abci.user }}"
+    group: "{{ abci.group }}"
+
+- name: Sync the ABCI app service binary across to the server
+  synchronize:
+    src: "{{ abci.src_binary }}"
+    dest: "/usr/bin/{{ abci.name }}"
+
+- name: Ensure correct ABCI app service binary permissions
+  file:
+    path: "/usr/bin/{{ abci.name }}"
+    mode: 0755
+    owner: "{{ abci.user }}"
+    group: "{{ abci.group }}"
+
+- name: Ensure ABCI app systemd service is present
+  template:
+    src: "{{ abci.template }}"
+    dest: "/etc/systemd/system/{{ abci.name }}.service"
+
+- name: Copy any additional files
+  copy: "src={{ item.src }} dest={{ item.dest }} owner={{ item.owner }} group={{ item.group }}"
+  with_items: "{{ abci.copy_files }}"
+  when: len(abci.copy_files) > 0
+
+- name: Reload systemd
+  systemd: daemon_reload=yes
+
+- name: Set ABCI app service to required state
+  service: "name={{ abci.name }} state={{ abci.state }}"
+
+- name: Pause, if required, to give ABCI app time to start up
+  pause: "seconds={{ abci.pause.seconds }}"
+  when: abci.pause.enabled == True

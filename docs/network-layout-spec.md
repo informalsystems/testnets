@@ -49,15 +49,50 @@ monitoring:
     # password will automatically be generated.
     password: $INFLUXDB_PASSWORD
 
+# Allows you to specify different configurations of your ABCI application, each
+# with its own unique identifier. You can leave this section out completely if
+# you're going to be using one of the built-in apps (like the kvstore), or if
+# the binary you're deploying uses Tendermint as a library.
+abci:
+  # Each ABCI application configuration lists 3 Ansible playbooks: one for
+  # deploying your ABCI app, one for starting it, and one for stopping it.
+  # Each configuration allows for specifying extra Ansible variables using the
+  # extra_vars parameter. You can specify any number of variables here and they
+  # will be passed into your playbook during its execution.
+  myabciapp:
+    deploy:
+      playbook: ./myabciapp/deploy.yaml
+      extra_vars:
+        somevar: somevalue
+        othervar: 1234
+    start:
+      playbook: ./myabciapp/start.yaml
+    stop:
+      playbook: ./myabciapp/stop.yaml
+
 # A mapping of named sub-groups of nodes within the desired test network
 # resource group. All group names (e.g. `my_validators`, `my_seeds`, etc.) are
 # totally arbitrary. You can have as many groups with different identifiers as
 # you want.
-tendermint_network:
+node_groups:
   - my_validators:
       # If you want to deploy an official release of Tendermint, just specify
       # a version number here and its binary will be deployed from GitHub.
-      tendermint: v0.31.7
+      binary: v0.31.7
+
+      # By default, this service will be called "tendermint", but if you want
+      # it to be called something else you can. The same goes for the user and
+      # group that will run the binary.
+      service:
+        state: started
+      #  name: tendermint
+      #  user: tendermint
+      #  group: tendermint
+
+      # Leaving this out assumes you're either using a built-in ABCI
+      # application (like the kvstore) or your binary is built using Tendermint
+      # as a library.
+      abci: myabciapp
 
       # Are these nodes to be validators? (Default: yes)
       validators: yes
@@ -65,9 +100,6 @@ tendermint_network:
       # Are these nodes' details to be included in the `genesis.json` file?
       # (Default: yes)
       in_genesis: yes
-
-      # Should these nodes' Tendermint services be started? (Default: yes)
-      start: yes
 
       # Where to find the configuration file to use as a template for
       # generating configuration for all of the nodes in this sub-network.
@@ -90,9 +122,11 @@ tendermint_network:
         - us_west_1: 3    # my_validators[3], my_validators[4], my_validators[5]
 
   - my_seeds:
-      tendermint: v0.31.7
+      binary: v0.31.7
       # We don't want our seed nodes to be validators
       validators: no
+      service:
+        state: started
       # Be sure to set seed_mode = true in this configuration template
       config_template: ./seednode-config.toml
       # Where to deploy seed nodes for this group
@@ -103,7 +137,8 @@ tendermint_network:
   - late_joiner_validators:
       # If you want to deploy a custom Tendermint binary, specify its path
       # instead of an official release version.
-      tendermint: /path/to/local/tendermint
+      binary: /path/to/local/tendermint
+      abci: myabciapp
 
       validators: yes
 
@@ -113,7 +148,8 @@ tendermint_network:
 
       # The nodes should not be started automatically (assumes that you will
       # start the Tendermint services manually at a later stage)
-      start: no
+      service:
+        state: stopped
 
       config_template: ./late-joiners-config.toml
       use_seeds:
@@ -122,10 +158,11 @@ tendermint_network:
         - us_east_1: 2   # late_joiner_validators[0],late_joiner_validators[1]
   
   - late_joiner_non_validators:
-      tendermint: /path/to/local/tendermint
+      binary: /path/to/local/tendermint
       validators: no
       in_genesis: no
-      start: no
+      service:
+        state: stopped
       config_template: ./late-joiners-config.toml
       use_seeds:
         - my_seeds

@@ -4,8 +4,26 @@
   become: yes
   become_user: root
   vars:
-    tendermint_user: tendermint
-    tendermint_group: tendermint
-    tendermint_state: restarted
+    service:
+      name: tendermint
+      user: tendermint
+      group: tendermint
+      state: restarted
+      template: tendermint.service.jinja2
+      src_binary: /path/to/service/binary
+      src_config_path: /path/to/config/root/
+      copy_node_config: yes
+    abci:
+      deploy: no
+      name: myabciapp
+      user: tendermint
+      group: tendermint
+      state: restarted
+      template: /path/to/abci/service/template.service.jinja2
+      src_binary: /path/to/abci/binary
+      copy_files: []
+      pause:
+        enabled: no
+        seconds: 10
   roles:
     - tendermint

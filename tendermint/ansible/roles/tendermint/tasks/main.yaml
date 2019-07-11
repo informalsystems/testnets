@@ -1,58 +1,66 @@
+# Playbook for helping to deploy Tendermint
 ---
-- name: Check if Tendermint service is present
-  stat: path=/etc/systemd/system/tendermint.service
-  register: tendermint_service
+- name: Check if service is present
+  stat: "path=/etc/systemd/system/{{ service.name }}.service"
+  register: svc
 
-- name: Stop Tendermint if service is already present
-  service: name=tendermint state=stopped
-  when: tendermint_service.stat.exists
+- name: Stop service if present
+  service: "name={{ service.name }} state=stopped"
+  when: svc.stat.exists
 
-- name: Ensure Tendermint group exists
+- name: Ensure service group exists
   group:
-    name: "{{ tendermint_group }}"
+    name: "{{ service.group }}"
     state: present
 
-- name: Ensure Tendermint user exists
+- name: Ensure service user exists
   user:
-    name: "{{ tendermint_user }}"
+    name: "{{ service.user }}"
     shell: /bin/bash
-    home: /home/tendermint
-    group: "{{ tendermint_group }}"
+    home: "/home/{{ service.user }}"
+    group: "{{ service.group }}"
 
-- name: Sync the Tendermint binary across to the server
+- name: Sync the service binary across to the server
   synchronize:
-    src: "{{ tendermint_binary }}"
-    dest: /usr/bin/tendermint
+    src: "{{ service.src_binary }}"
+    dest: "/usr/bin/{{ service.name }}"
 
-- name: Ensure correct Tendermint binary permissions
+- name: Ensure correct service binary permissions
   file:
-    path: /usr/bin/tendermint
+    path: "/usr/bin/{{ service.name }}"
     mode: 0755
-    owner: "{{ tendermint_user }}"
-    group: "{{ tendermint_group }}"
+    owner: "{{ service.user }}"
+    group: "{{ service.group }}"
 
 - name: Delete any existing Tendermint configuration/data
-  file: path=/home/tendermint/.tendermint state=absent
+  file: "path=/home/{{ service.user }}/.tendermint state=absent"
+  when: service.copy_node_config == True
 
 - name: Copy the Tendermint node configuration across
   copy:
-    src: "{{ tendermint_config_path }}/{{ inventory_hostname }}/"
-    dest: /home/tendermint/.tendermint/
+    src: "{{ service.src_config_path }}/{{ inventory_hostname }}/"
+    dest: "/home/{{ service.user }}/.tendermint/"
+  when: service.copy_node_config == True
 
-- name: Ensure the Tendermint user owns the Tendermint home directory
+- name: Ensure the service user owns the Tendermint home directory
   file:
-    path: /home/tendermint/.tendermint/
+    path: "/home/{{ service.user }}/.tendermint/"
     recurse: yes
-    owner: "{{ tendermint_user }}"
-    group: "{{ tendermint_group }}"
+    owner: "{{ service.user }}"
+    group: "{{ service.group }}"
 
 - name: Ensure systemd service is present
   template:
-    src: tendermint.jinja2.service
-    dest: /etc/systemd/system/tendermint.service
+    src: "{{ service.template }}"
+    dest: "/etc/systemd/system/{{ service.name }}.service"
+
+- name: Install ABCI application if required
+  import_tasks: abci.yaml
+  when: abci.deploy == True
 
 - name: Reload systemd
   systemd: daemon_reload=yes
+  when: abci.deploy == False
 
-- name: Set Tendermint service to appropriate state
-  service: "name=tendermint state={{ tendermint_state }}"
+- name: Set service to required state
+  service: "name={{ service.name }} state={{ service.state }}"
