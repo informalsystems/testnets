@@ -141,6 +141,25 @@ def main():
         help="By default, this command fails if a group/node reference has not yet been deployed. Specifying this flag will just skip that group/node instead.",
     )
 
+    # network fetch_logs
+    parser_network_fetch_logs = subparsers_network.add_parser(
+        "fetch_logs",
+        help="Fetch the logs for one or more node(s) or node group(s). " +
+            "Note that this stops any running service instances on the target " +
+            "nodes prior to fetching the logs, and then restarts those instances " +
+            "that were running previously.",
+    )
+    parser_network_fetch_logs.add_argument(
+        "output_path",
+        help="Where to store all desired nodes' logs."
+    )
+    parser_network_fetch_logs.add_argument(
+        "node_or_group_ids",
+        metavar="node_or_group_id",
+        nargs="*",
+        help="Zero or more node or group IDs of network node(s). If this is not supplied, all nodes' logs will be fetched."
+    )
+
     # loadtest
     parser_loadtest = subparsers.add_parser(
         "loadtest", 
@@ -166,6 +185,7 @@ def main():
         "aws_keypair_name": os.environ.get("AWS_KEYPAIR_NAME", getattr(args, "aws_keypair_name", default_aws_keypair_name)),
         "ec2_private_key_path": os.environ.get("EC2_PRIVATE_KEY", getattr(args, "ec2_private_key", default_ec2_private_key)),
         "keep_existing_tendermint_config": getattr(args, "keep_existing_tendermint_config", False),
+        "output_path": getattr(args, "output_path", None),
         "node_or_group_ids": getattr(args, "node_or_group_ids", []),
         "fail_on_missing": not getattr(args, "no_fail_on_missing", False),
     }
@@ -284,6 +304,8 @@ def tmtestnet(cfg_file, command, subcommand, **kwargs) -> int:
             fn = network_start
         elif subcommand == "stop":
             fn = network_stop
+        elif subcommand == "fetch_logs":
+            fn = network_fetch_logs
 
     if fn is None:    
         logger.error("Command/sub-command not yet supported: %s %s", command, subcommand)
@@ -299,15 +321,18 @@ def tmtestnet(cfg_file, command, subcommand, **kwargs) -> int:
     return 0
 
 
-def network_deploy(cfg: "TestnetConfig", **kwargs):
+def network_deploy(
+    cfg: "TestnetConfig", 
+    aws_keypair_name: str = None,
+    ec2_private_key_path: str = None,
+    keep_existing_tendermint_config: bool = False,
+    **kwargs,
+):
     """Deploys the network according to the given configuration."""
-    aws_keypair_name = kwargs.get("aws_keypair_name", None)
     if not aws_keypair_name:
         raise Exception("Missing AWS keypair name")
-    ec2_private_key_path = kwargs.get("ec2_private_key_path", None)
     if not os.path.exists(ec2_private_key_path):
         raise Exception("Cannot find EC2 private key: %s" % ec2_private_key_path)
-    keep_existing_tendermint_config = kwargs.get("keep_existing_tendermint_config", False)
 
     # first we get the Tendermint network config, so we can validate and
     # download any binaries we may need
@@ -395,17 +420,17 @@ def network_deploy(cfg: "TestnetConfig", **kwargs):
             node_group_outputs["inventory_file"],
             config_path,
             binaries[node_group_cfg.binary],
-            node_group_cfg.service,
+            node_group_cfg.service_state,
             node_group_cfg.abci,
             ec2_private_key_path,
         )
-        if node_group_cfg.service.state in ["started", "restarted"]:
+        if node_group_cfg.service_state in ["started", "restarted"]:
             start_groups.append(node_group_name)
 
     # start all nodes (that we want started) simultaneously
     network_start(
         cfg,
-        node_or_group_ids=as_testnet_node_refs(start_groups, "network start"),
+        node_or_group_ids=start_groups,
         ec2_private_key_path=ec2_private_key_path,
     )
 
@@ -422,16 +447,21 @@ def network_destroy(cfg: "TestnetConfig", **kwargs):
         terraform_destroy_monitoring(os.path.join(testnet_home, "monitoring"))
 
 
-def network_state(cfg: "TestnetConfig", state: str, **kwargs):
-    fail_on_missing = kwargs.get("fail_on_missing", True)
-    fail_on_error = kwargs.get("fail_on_error", True)
-    ec2_private_key_path = kwargs.get("ec2_private_key_path", None)
+def network_state(
+    cfg: "TestnetConfig", 
+    state: str,
+    node_or_group_ids: List[str] = None,
+    ec2_private_key_path: str = None,
+    fail_on_missing: bool = True,
+    fail_on_error: bool = True,
+    **kwargs,
+):
     if not os.path.exists(ec2_private_key_path):
         raise Exception("Cannot find EC2 private key: %s" % ec2_private_key_path)
 
     testnet_home = os.path.join(cfg.home, cfg.id)
     target_refs = as_testnet_node_refs(
-        kwargs.get("node_or_group_ids", []),
+        node_or_group_ids or [],
         "from command line parameter(s)",
     )
     # if we have no targets, assume all groups are targets
@@ -442,8 +472,10 @@ def network_state(cfg: "TestnetConfig", state: str, **kwargs):
     ansible_set_tendermint_nodes_state(
         os.path.join(testnet_home, "tendermint"),
         target_refs,
-        state,
+        dict([(name, node_group.abci) for name, node_group in cfg.node_groups.items()]),
+        cfg.abci,
         ec2_private_key_path,
+        state,
         fail_on_missing=fail_on_missing,
         fail_on_error=fail_on_error,
     )
@@ -456,6 +488,36 @@ def network_start(cfg: "TestnetConfig", **kwargs):
 
 def network_stop(cfg: "TestnetConfig", **kwargs):
     network_state(cfg, "stopped", **kwargs)
+
+
+def network_fetch_logs(
+    cfg: "TestnetConfig", 
+    output_path=None, 
+    node_or_group_ids=None,
+    ec2_private_key_path=None,
+    **kwargs):
+    if output_path is None or len(output_path) == 0:
+        raise Exception("fetch_logs command requires an output path parameter")
+    if not os.path.exists(ec2_private_key_path):
+        raise Exception("Cannot find EC2 private key: %s" % ec2_private_key_path)
+    
+    testnet_home = os.path.join(cfg.home, cfg.id)
+    target_refs = as_testnet_node_refs(
+        node_or_group_ids or [],
+        "from command line parameter(s)",
+    )
+    # if we have no targets, assume all groups are targets
+    if len(target_refs) == 0:
+        for node_group_name, _ in cfg.node_groups.items():
+            target_refs.append(TestnetNodeRef(group=node_group_name))
+
+    logger.info("Fetching logs")
+    ansible_fetch_logs(
+        os.path.join(testnet_home, "tendermint"),
+        target_refs,
+        output_path,
+        ec2_private_key_path,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -481,19 +543,15 @@ TestnetInfluxDBConfig = namedtuple("TestnetInfluxDBConfig",
     ["enabled", "deploy", "region", "url", "password", "instance_type", "volume_size"],
     defaults=[False, False, "us-east-1", None, None, "t3.small", 10],
 )
-TestnetNodeGroupServiceConfig = namedtuple("TestnetNodeGroupServiceConfig",
-    ["name", "user", "group", "template", "state"],
-    defaults=["tendermint", "tendermint", "tendermint", "tendermint.service.jinja2", "started"]
-)
 TestnetNodeGroupConfig = namedtuple("TestnetNodeGroupConfig",
     [
-        "binary", "abci", "validators", "in_genesis", "power", "service",
+        "binary", "abci", "validators", "in_genesis", "power", "service_state",
         "config_template", "use_seeds", "persistent_peers", "regions", 
         "instance_type", "volume_size", "generate_tendermint_config",
         "custom_tendermint_config_root",
     ],
     defaults=[
-        None, None, True, True, 1000, TestnetNodeGroupServiceConfig(),
+        None, None, True, True, 1000, "started",
         None, [], [], OrderedDict(), 
         "t3.small", 8, True,
         None,
@@ -517,6 +575,10 @@ TestnetRegionConfig = namedtuple("TestnetRegionConfig",
 TestnetNodeRef = namedtuple("TestnetNodeRef",
     ["group", "id"],
     defaults=[None, None],
+)
+TestnetHostRef = namedtuple("TestnetHostRef",
+    ["group", "id", "hostname"],
+    defaults=[None, None, None],
 )
 
 
@@ -551,11 +613,12 @@ def load_testnet_config(filename: str) -> TestnetConfig:
         raise Exception("Missing required \"id\" parameter in configuration file")
 
     config_base_path = os.path.dirname(os.path.abspath(filename))
+    abci_config = load_abci_configs(cfg_dict.get("abci", dict()), config_base_path)
     return TestnetConfig(
         id=cfg_dict["id"],
         monitoring=load_monitoring_config(cfg_dict.get("monitoring", dict())),
-        abci=load_abci_configs(cfg_dict.get("abci", dict()), config_base_path),
-        node_groups=load_node_groups_config(cfg_dict.get("node_groups", []), config_base_path),
+        abci=abci_config,
+        node_groups=load_node_groups_config(cfg_dict.get("node_groups", []), config_base_path, abci_config),
         load_tests=load_load_tests_config(cfg_dict.get("load_tests", [])),
         home=tmtestnet_home,
     )
@@ -608,74 +671,16 @@ def load_abci_playbook_config(cfg_dict: Dict, config_base_path: str, ctx: str) -
     return TestnetABCIPlaybookConfig(**cfg_dict)
 
 
-def load_abci_simple_config(cfg_dict: Dict, config_base_path: str, ctx: str) -> TestnetSimpleABCIConfig:
-    if "binary" not in cfg_dict:
-        raise Exception("Missing required field: \"binary\" (%s)" % ctx)
-    _cfg_dict = deepcopy(cfg_dict)
-    _cfg_dict["binary"] = resolve_relative_path(cfg_dict["binary"], config_base_path)
-    service = load_abci_service_config(
-        cfg_dict.get("service", dict()), 
-        config_base_path, 
-        "in ABCI \"service\" configuration, %s" % ctx,
-    )
-    _cfg_dict["service"] = service
-    if "copy_files" in cfg_dict:
-        _cfg_dict["copy_files"] = []
-        i = 0
-        for f in cfg_dict["copy_files"]:
-            _cfg_dict["copy_files"].append(
-                load_file_copy_config(
-                    f, 
-                    config_base_path,
-                    service.user,
-                    service.group,
-                    "in \"copy_files\" item %d, %s" % (i, ctx),
-                ),
-            )
-            i += 1
-    return TestnetSimpleABCIConfig(**_cfg_dict)
-
-
-def load_abci_service_config(cfg_dict: Dict, config_base_path: str, ctx: str) -> TestnetSimpleABCIServiceConfig:
-    if not isinstance(cfg_dict, dict):
-        raise Exception("Expected service configuration to be a set of key/value pairs (%s)" % ctx)
-    _cfg_dict = deepcopy(cfg_dict)
-    _cfg_dict["pause"] = load_abci_service_pause_config(cfg_dict.get("pause", None), ctx)
-    return TestnetSimpleABCIServiceConfig(**_cfg_dict)
-
-
-def load_abci_service_pause_config(cfg_dict: Dict, ctx: str) -> TestnetSimpleABCIPauseConfig:
-    if not isinstance(cfg_dict, dict):
-        raise Exception("Expected pause configuration to be a set of key/value pairs (%s)" % ctx)
-    return TestnetSimpleABCIPauseConfig(**cfg_dict)
-
-
-def load_file_copy_config(cfg_dict: Dict, config_base_path: str, default_user: str, default_group: str, ctx: str) -> TestnetFileCopyConfig:
-    if not isinstance(cfg_dict, dict):
-        raise Exception("Expected copy file entry to be a set of key/value pairs (%s)" % ctx)
-    required_fields = {"src", "dest"}
-    for f in required_fields:
-        if f not in cfg_dict:
-            raise Exception("Missing field \"%s\" in copy file entry (%s)" % (f, ctx))
-    _cfg_dict = deepcopy(cfg_dict)
-    _cfg_dict["src"] = resolve_relative_path(cfg_dict["src"], config_base_path)
-    _cfg_dict["user"] = _cfg_dict.get("user", default_user)
-    _cfg_dict["group"] = _cfg_dict.get("group", default_group)
-    return TestnetFileCopyConfig(**_cfg_dict)
-
-
-def load_abci_complex_config(cfg_dict: Dict, config_base_path: str, ctx: str) -> TestnetComplexABCIConfig:
-    _cfg_dict = deepcopy(cfg_dict)
-    _cfg_dict["playbook"] = resolve_relative_path(cfg_dict["playbook"], config_base_path)
-    return TestnetComplexABCIConfig(**_cfg_dict)
-
-
-def load_node_groups_config(cfg_list: List, config_base_path: str) -> OrderedDictType[str, TestnetNodeGroupConfig]:
+def load_node_groups_config(
+    cfg_list: List, 
+    config_base_path: str,
+    abci_config: TestnetABCIConfig,
+) -> OrderedDictType[str, TestnetNodeGroupConfig]:
     return as_ordered_dict(
         cfg_list,
         "in \"node_groups\" configuration",
         value_transform=load_node_group_config,
-        additional_params={"config_base_path": config_base_path}
+        additional_params={"config_base_path": config_base_path, "abci_config": abci_config},
     )
 
 
@@ -687,7 +692,12 @@ def load_load_tests_config(cfg_list: list) -> OrderedDictType:
     )
 
 
-def load_node_group_config(cfg_dict: dict, ctx: str, config_base_path: str = None) -> TestnetNodeGroupConfig:
+def load_node_group_config(
+    cfg_dict: dict, 
+    ctx: str, 
+    config_base_path: str = None,
+    abci_config: TestnetABCIConfig = None,
+) -> TestnetNodeGroupConfig:
     # don't modify the original config
     _cfg_dict = deepcopy(cfg_dict)
     _cfg_dict["regions"] = parse_regions_list(
@@ -701,19 +711,9 @@ def load_node_group_config(cfg_dict: dict, ctx: str, config_base_path: str = Non
         _cfg_dict["config_template"] = resolve_relative_path(cfg_dict["config_template"], config_base_path)
         if not os.path.isfile(_cfg_dict["config_template"]):
             raise Exception("Cannot find configuration template: %s (%s)" % (_cfg_dict["config_template"], ctx))
-    if "service" in cfg_dict:
-        _cfg_dict["service"] = load_node_group_service_config(cfg_dict["service"], config_base_path, ctx)
+    if "abci" in _cfg_dict and _cfg_dict["abci"] not in abci_config:
+        raise Exception("Unrecognized ABCI configuration: %s (%s)" % (_cfg_dict["abci"], ctx))
     return TestnetNodeGroupConfig(**_cfg_dict)
-
-
-def load_node_group_service_config(cfg, config_base_path, ctx) -> TestnetNodeGroupServiceConfig:
-    if not isinstance(cfg, dict):
-        raise Exception("Expected node group service configuration to be a set of key/value pairs (%s)" % ctx)
-    _cfg = deepcopy(cfg)
-    _cfg["template"] = "tendermint.service.jinja2" if "template" not in cfg or len(cfg["template"]) == 0 else cfg["template"]
-    if _cfg["template"] != "tendermint.service.jinja2":
-        _cfg["template"] = resolve_relative_path(_cfg["template"], config_base_path)
-    return TestnetNodeGroupServiceConfig(**_cfg)
 
 
 def load_load_test_config(cfg_dict: dict, ctx: str):
@@ -945,12 +945,13 @@ def tendermint_generate_config(
     ensure_path_exists(workdir)
     cmd = [
         "tendermint", "testnet",
-        "--config", config_file_template,
         "--v", "%d" % validators,
         "--n", "%d" % non_validators,
         "--populate-persistent-peers=false", # we'll handle this ourselves later
         "--o", workdir,
     ]
+    if config_file_template is not None:
+        cmd.extend(["--config", config_file_template])
     for hostname in hostnames:
         cmd.extend(["--hostname", hostname])
     sh(cmd)
@@ -1043,62 +1044,19 @@ def ansible_deploy_tendermint_node_group(
     inventory_file: str,
     config_path: str,
     binary: str,
-    service_cfg: TestnetNodeGroupServiceConfig,
+    service_state: str,
     abci_cfg,
     ec2_private_key_path: str,
 ):
     logger.info("Deploying node group configuration: %s", config_path)
 
-    if isinstance(abci_cfg, TestnetComplexABCIConfig):
-        ansible_deploy_complex_abci_app(
-            workdir,
-            inventory_file,
-            abci_cfg,
-            ec2_private_key_path,
-        )
-
     logger.info("Using binary: %s", binary)
     extra_vars_file = os.path.join(workdir, "ansible-extra-vars.yaml")
-    # extra_vars = {
-    #     "tendermint_config_path": config_path,
-    #     "tendermint_binary": binary,
-    #     "tendermint_state": "restarted" if start_nodes else "stopped",
-    # }
-    # by default we don't want to deploy the ABCI app
-    abci_vars = {"deploy": False}
-    if isinstance(abci_cfg, TestnetSimpleABCIConfig):
-        abci_vars = {
-            "deploy": True,
-            "name": abci_cfg.service.name,
-            "user": abci_cfg.service.user,
-            "group": abci_cfg.service.group,
-            "state": "stopped",
-            "template": abci_cfg.service.template,
-            "src_binary": abci_cfg.binary,
-            "copy_files": [{
-                "src": f.src,
-                "dest": f.dest,
-                "owner": f.owner,
-                "group": f.group,
-                "mode": f.mode,
-            } for f in abci_cfg.copy_files],
-            "pause": {
-                "enabled": abci_cfg.service.pause.enabled,
-                "seconds": abci_cfg.service.pause.seconds,
-            }
-        }
     extra_vars = {
-        "service": {
-            "name": service_cfg.name,
-            "user": service_cfg.user,
-            "group": service_cfg.group,
-            "state": "stopped",
-            "template": service_cfg.template,
-            "src_binary": binary,
-            "src_config_path": config_path,
-            "copy_node_config": True,
-        },
-        "abci": abci_vars,
+        "service_state": "stopped",
+        "src_binary": binary,
+        "src_config_path": config_path,
+        "copy_node_config": True,
     }
     save_yaml_config(extra_vars_file, extra_vars)
 
@@ -1108,81 +1066,123 @@ def ansible_deploy_tendermint_node_group(
         "-u", "ec2-user",
         "-e", "@%s" % extra_vars_file,
         "--private-key", ec2_private_key_path,
-        os.path.join("tendermint", "ansible", "deploy-tendermint.yaml"),
+        os.path.join("tendermint", "ansible", "deploy.yaml"),
     ])
 
 
 def ansible_set_tendermint_nodes_state(
     workdir: str,
     refs: List[TestnetNodeRef],
-    state: str,
+    node_group_abcis: Dict[str, str], # mapping of node group names to ABCI names
+    abci_configs: Dict[str, TestnetABCIConfig], # mapping of ABCI config names to ABCI configs
     ec2_private_key_path: str,
+    state: str,
     fail_on_missing: bool = True,
     fail_on_error: bool = True,
 ):
     """Attempts to collect all nodes' details from the given references list
     and ensure that they are all set to the desired state (Ansible state)."""
-    valid_states = ["started", "stopped", "restarted"]
+    valid_states = {"started", "stopped", "restarted"}
     if state not in valid_states:
         raise Exception("Desired service state must be one of: %s", ", ".join(valid_states))
-    hostnames = set()
-    for ref in refs:
-        node_group_path = os.path.join(workdir, ref.group)
-        output_vars_file = os.path.join(node_group_path, "output-vars.yaml")
-        if not os.path.isfile(output_vars_file):
-            if fail_on_missing:
-                raise Exception("Missing output variables for node group: %s - has this node group been deployed yet?" % output_vars_file)
-            else:
-                logger.info("Node group has not yet been deployed, skipping: %s", ref.group)
-                continue
-        output_vars = load_yaml_config(output_vars_file)
-        if ref.id is None:
-            # add all hosts for this node group
-            for hostname in output_vars["inventory_ordered"]:
-                hostnames.add(hostname)
-        else:
-            # add the specific host
-            if ref.id < 0 or ref.id >= len(output_vars["inventory_ordered"]):
-                raise Exception(
-                    "Invalid ID %d for host in node group %s (this group has %d entries)" % (
-                        ref.id, ref.group, len(output_vars["inventory_ordered"],
-                    )))
-            hostnames.add(output_vars["inventory_ordered"][0])
+    state_verb = "starting" if state in {"started", "restarted"} else "stopping"
 
-    if len(hostnames) == 0:
+    # get all of the host references
+    host_refs = node_to_host_refs(workdir, refs, fail_on_missing=fail_on_missing)
+    hostnames_by_abci = dict()
+    for host_ref in host_refs:
+        node_group_abci = node_group_abcis.get(host_ref.group, None)
+        if node_group_abci is not None:
+            if host_ref.group not in hostnames_by_abci:
+                hostnames_by_abci[host_ref.group] = []
+            hostnames_by_abci[host_ref.group].append(host_ref.hostname)
+
+    if len(host_refs) == 0:
         logger.info("No deployed hosts' states to change")
         return
 
-    logger.info("Setting deployed hosts' state to \"%s\": %s", state, ", ".join(hostnames))
+    logger.info("%s hosts", state_verb.capitalize())
 
     ok = True
     with tempfile.TemporaryDirectory() as tmpdir:
+        abci_playbook_cmds = []
+
         inventory_file = os.path.join(tmpdir, "inventory")
-        with open(inventory_file, "wt") as f:
-            f.write("[tendermint]\n")
-            for hostname in hostnames:
-                f.write("%s\n" % hostname)
+        inventory = OrderedDict()
+        inventory["tendermint"] = [host_ref.hostname for host_ref in host_refs]
+        for abci_config_name, abci_hostnames in hostnames_by_abci.items():
+            abci_cfg = abci_configs[abci_config_name].start if state in ["started", "restarted"] else abci_configs[abci_config_name].stop
+            inventory[abci_config_name] = abci_hostnames
+            abci_extra_vars_file = os.path.join(tmpdir, "extravars_%s.yaml" % abci_config_name)
+            extra_vars = {
+                "state": state,
+                "hosts": abci_config_name,
+            }
+            if isinstance(abci_cfg.extra_vars, dict):
+                extra_vars.update(abci_cfg.extra_vars)
+            save_yaml_config(abci_extra_vars_file, extra_vars)
+            abci_playbook_cmds.append([("%s hosts for ABCI configuration: %s" % (state_verb.capitalize(), abci_config_name),
+                "ansible-playbook",
+                "-i", inventory_file,
+                "-u", "ec2-user",
+                "-e", "@%s" % abci_extra_vars_file,
+                "--private-key", ec2_private_key_path,
+                abci_cfg.playbook,
+            )])
+        save_ansible_inventory(inventory_file, inventory)
         
-        cmds = [("Changing Tendermint nodes' state", [
+        tendermint_playbook_cmd = [
             "ansible-playbook",
             "-i", inventory_file,
             "-u", "ec2-user",
             "-e", "state=%s" % state,
             "--private-key", ec2_private_key_path,
             os.path.join("tendermint", "ansible", "tendermint-state.yaml"),
-        ])]
-        if 
+        ]
+        cmds = [("Changing Tendermint nodes' state", tendermint_playbook_cmd)]
+        # if we're starting, we need to start the ABCI apps first
+        if state in {"started", "restarted"}:
+            cmds = abci_playbook_cmds + cmds
+        else:
+            # otherwise, if we're stopping, we need to stop the ABCI apps last
+            cmds = cmds + abci_playbook_cmds
 
         try:
-            sh(tendermint_state_cmd)
+            for desc_cmd in cmds:
+                desc, cmd = desc_cmd
+                logger.info(desc)
+                sh(cmd)
         except Exception as e:
             ok = False
             if fail_on_error:
                 raise e
-            logger.info("Could not change host(s') state - skipping")
+            logger.info("Failed %s hosts - skipping", state_verb)
 
     if ok:
         logger.info("Hosts' state successfully set to \"%s\"", state)
+
+
+def ansible_fetch_logs(
+    workdir: str,
+    refs: List[TestnetNodeRef],
+    output_path: str,
+    ec2_private_key_path: str,
+    fail_on_missing: bool = True,
+):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        inventory_file = os.path.join(tmpdir, "inventory")
+        host_refs = node_to_host_refs(workdir, refs, fail_on_missing=fail_on_missing)
+        save_ansible_inventory(inventory_file, OrderedDict({
+            "tendermint": [host_ref.hostname for host_ref in host_refs],
+        }))
+        sh([
+            "ansible-playbook",
+            "-i", inventory_file,
+            "-u", "ec2-user",
+            "-e", "local_log_path=%s" % output_path,
+            "--private-key", ec2_private_key_path,
+            os.path.join("tendermint", "ansible", "fetch-logs.yaml"),
+        ])
 
 
 # -----------------------------------------------------------------------------
@@ -1561,6 +1561,60 @@ def unique_peer_ids(
         else:
             result.add(tendermint_config[ref.group][ref.id].peer_id)
     return result
+
+
+def save_ansible_inventory(filename: str, inventory: OrderedDictType[str, List[str]]):
+    """Writes the given inventory structure to an Ansible inventory file."""
+    with open(filename, "wt") as f:
+        for group_name, hostnames in inventory.items():
+            f.write("[%s]\n" % group_name)
+            for hostname in hostnames:
+                f.write("%s\n" % hostname)
+            f.write("\n")
+
+
+def node_to_host_refs(
+    workdir: str, 
+    refs: List[TestnetNodeRef], 
+    fail_on_missing: bool = True,
+) -> List[TestnetHostRef]:
+    """Returns the hostnames associated with each node/group reference."""
+    hostnames = []
+    seen_hostnames = set()
+    for ref in refs:
+        node_group_path = os.path.join(workdir, ref.group)
+        output_vars_file = os.path.join(node_group_path, "output-vars.yaml")
+        if not os.path.isfile(output_vars_file):
+            if fail_on_missing:
+                raise Exception("Missing output variables for node group %s - has this node group been deployed yet?" % ref.group)
+            else:
+                logger.info("Node group %s has not yet been deployed - skipping" % ref.group)
+                continue
+        output_vars = load_yaml_config(output_vars_file)
+        # if we want the whole group's hosts
+        if ref.id is None:
+            i = 0
+            for hostname in output_vars["inventory_ordered"]:
+                if hostname not in seen_hostnames:
+                    hostnames.append(TestnetHostRef(group=ref.group, id=i, hostname=hostname))
+                    seen_hostnames.add(hostname)
+                i += 1
+        else:
+            # just add the specific host
+            if ref.id < 0 or ref.id >= len(output_vars["inventory_ordered"]):
+                msg = "Invalid ID %d for host in node group %s (this group has %d entries)" % (
+                    ref.id, ref.group, len(output_vars["inventory_ordered"]),
+                )
+                if fail_on_missing:
+                    raise Exception(msg)
+                else:
+                    logger.info("%s - skipping" % msg)
+                    continue
+            hostname = output_vars["inventory_ordered"][ref.id]
+            if hostname not in seen_hostnames:
+                hostnames.append(TestnetHostRef(group=ref.group, id=i, hostname=hostname))
+                seen_hostnames.add(hostname)
+    return hostnames
 
 
 if __name__ == "__main__":

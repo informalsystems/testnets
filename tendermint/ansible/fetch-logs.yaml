@@ -1,0 +1,34 @@
+---
+- hosts: "{{ hosts }}"
+  become: yes
+  become_user: root
+  vars:
+    service_name: tendermint
+    service_log_path: "/var/log/tendermint*"
+    local_log_path: /tmp/tendermint-logs/
+  tasks:
+    - name: Collect service facts
+      service_facts:
+    
+    - name: Ensure service is stopped
+      service: "name={{ service_name }} state=stopped"
+      when: ansible_facts.services[service_name].state == "running"
+    
+    - name: Archive log files for node
+      archive: 
+        path: "{{ service_log_path }}"
+        dest: /tmp/archived-logs.tar.bz2
+
+    - name: Restart service on host(s) where it was running
+      service: "name={{ service_name }} state=restarted"
+      when: ansible_facts.services[service_name].state == "running"
+    
+    - name: Fetch compressed logs
+      fetch:
+        src: /tmp/archived-logs.tar.bz2
+        dest: "{{ local_log_path }}/{{ inventory_hostname }}/archived-logs.tar.bz2"
+        flat: yes
+  
+    - name: Unarchive compressed logs locally
+      become: no
+      local_action: "command tar xf {{ local_log_path }}/{{ inventory_hostname }}/archived-logs.tar.bz2 -C {{ local_log_path }}/{{ inventory_hostname }}"
