@@ -81,7 +81,7 @@ node_group_templates:
 
     # What's the initial state of the Tendermint service? Can be "started" or
     # "stopped".
-    state: started
+    service_state: started
 
     # Leaving this out assumes you're either using a built-in ABCI
     # application (like the kvstore) or your binary is built using Tendermint
