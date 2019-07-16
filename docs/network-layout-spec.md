@@ -70,49 +70,53 @@ abci:
     stop:
       playbook: ./myabciapp/stop.yaml
 
+# The entry node_group_templates is not actually parsed - what's more important
+# here is to note that PyYAML supports YAML anchors and aliases, which
+# allow you to define templates in your YAML files.
+node_group_templates:
+  validator: &validator_template
+    # If you want to deploy an official release of Tendermint, just specify
+    # a version number here and its binary will be deployed from GitHub.
+    binary: v0.31.7
+
+    # What's the initial state of the Tendermint service? Can be "started" or
+    # "stopped".
+    state: started
+
+    # Leaving this out assumes you're either using a built-in ABCI
+    # application (like the kvstore) or your binary is built using Tendermint
+    # as a library.
+    abci: myabciapp
+
+    # Are these nodes to be validators? (Default: yes)
+    validators: yes
+
+    # Are these nodes' details to be included in the `genesis.json` file?
+    # (Default: yes)
+    in_genesis: yes
+
+    # Where to find the configuration file to use as a template for
+    # generating configuration for all of the nodes in this sub-network.
+    config_template: ./my-validators-config.toml
+
+    # The group name(s) for nodes to consider as seeds
+    use_seeds:
+      - my_seeds
+
+    # To prepopulate persistent peers' addresses, specify a list of group
+    # names here. Can specify this group's own name here.
+    #persistent_peers:
+    #  - my_validators
+
 # A mapping of named sub-groups of nodes within the desired test network
 # resource group. All group names (e.g. `my_validators`, `my_seeds`, etc.) are
 # totally arbitrary. You can have as many groups with different identifiers as
 # you want.
 node_groups:
   - my_validators:
-      # If you want to deploy an official release of Tendermint, just specify
-      # a version number here and its binary will be deployed from GitHub.
-      binary: v0.31.7
-
-      # By default, this service will be called "tendermint", but if you want
-      # it to be called something else you can. The same goes for the user and
-      # group that will run the binary.
-      service:
-        state: started
-      #  name: tendermint
-      #  user: tendermint
-      #  group: tendermint
-
-      # Leaving this out assumes you're either using a built-in ABCI
-      # application (like the kvstore) or your binary is built using Tendermint
-      # as a library.
-      abci: myabciapp
-
-      # Are these nodes to be validators? (Default: yes)
-      validators: yes
-
-      # Are these nodes' details to be included in the `genesis.json` file?
-      # (Default: yes)
-      in_genesis: yes
-
-      # Where to find the configuration file to use as a template for
-      # generating configuration for all of the nodes in this sub-network.
-      config_template: ./my-validators-config.toml
-
-      # The group name(s) for nodes to consider as seeds
-      use_seeds:
-        - my_seeds
-
-      # To prepopulate persistent peers' addresses, specify a list of group
-      # names here. Can specify this group's own name here.
-      #persistent_peers:
-      #  - my_validators
+      # We support YAML anchors and aliases, which effectively allow for
+      # templating within the YAML file.
+      <<: *validator_template
 
       # Where to deploy nodes for this group. Note that nodes are numbered
       # according to the order in which the regions appear here.
@@ -125,8 +129,7 @@ node_groups:
       binary: v0.31.7
       # We don't want our seed nodes to be validators
       validators: no
-      service:
-        state: started
+      service_state: started
       # Be sure to set seed_mode = true in this configuration template
       config_template: ./seednode-config.toml
       # Where to deploy seed nodes for this group
@@ -135,12 +138,13 @@ node_groups:
         - us_west_1: 1    # my_seeds[1]
 
   - late_joiner_validators:
-      # If you want to deploy a custom Tendermint binary, specify its path
-      # instead of an official release version.
-      binary: /path/to/local/tendermint
-      abci: myabciapp
+      # Derives from validator_template
+      <<: *validator_template
 
-      validators: yes
+      # If you want to deploy a custom Tendermint binary, specify its path
+      # instead of an official release version. This overrides the value 
+      # provided in the validator_template object.
+      binary: /path/to/local/tendermint
 
       # We don't want these nodes to be included from the beginning. You will
       # have to add them to the network later manually/programmatically.
@@ -148,12 +152,8 @@ node_groups:
 
       # The nodes should not be started automatically (assumes that you will
       # start the Tendermint services manually at a later stage)
-      service:
-        state: stopped
-
+      service_state: stopped
       config_template: ./late-joiners-config.toml
-      use_seeds:
-        - my_seeds
       regions:
         - us_east_1: 2   # late_joiner_validators[0],late_joiner_validators[1]
   
@@ -161,8 +161,7 @@ node_groups:
       binary: /path/to/local/tendermint
       validators: no
       in_genesis: no
-      service:
-        state: stopped
+      service_state: stopped
       config_template: ./late-joiners-config.toml
       use_seeds:
         - my_seeds
