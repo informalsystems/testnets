@@ -1,0 +1,20 @@
+---
+# Ansible playbook for deploying Tendermint to a group of target nodes
+- hosts: tendermint
+  become: yes
+  become_user: root
+  vars:
+    service_name: tendermint
+    service_user: tendermint
+    service_group: tendermint
+    service_user_shell: /bin/bash
+    service_state: restarted
+    service_template: tendermint.service.jinja2
+    service_desc: Tendermint
+    service_exec_cmd: "/usr/bin/tendermint node"
+    src_binary: /path/to/service/binary
+    dest_binary: /usr/bin/tendermint
+    src_config_path: /path/to/config/root/
+    copy_node_config: yes
+  roles:
+    - tendermint

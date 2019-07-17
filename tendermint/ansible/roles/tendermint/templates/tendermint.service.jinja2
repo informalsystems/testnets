@@ -1,14 +1,14 @@
 [Unit]
-Description=Tendermint
+Description={{ service_desc }}
 Requires=network-online.target
 After=network-online.target
 
 [Service]
 Restart=on-failure
-User={{ tendermint_user }}
-Group={{ tendermint_group }}
+User={{ service_user }}
+Group={{ service_group }}
 PermissionsStartOnly=true
-ExecStart=/usr/bin/tendermint node
+ExecStart={{ service_exec_cmd }}
 KillSignal=SIGTERM
 LimitAS=infinity
 LimitRSS=infinity
@@ -17,7 +17,7 @@ LimitNOFILE=65536
 LimitMEMLOCK=infinity
 StandardOutput=syslog
 StandardError=syslog
-SyslogIdentifier=tendermint
+SyslogIdentifier={{ service_name }}
 
 [Install]
 WantedBy=multi-user.target
