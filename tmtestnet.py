@@ -1637,7 +1637,7 @@ def node_to_host_refs(
                     continue
             hostname = output_vars["inventory_ordered"][ref.id]
             if hostname not in seen_hostnames:
-                hostnames.append(TestnetHostRef(group=ref.group, id=i, hostname=hostname))
+                hostnames.append(TestnetHostRef(group=ref.group, id=ref.id, hostname=hostname))
                 seen_hostnames.add(hostname)
     return hostnames
 
