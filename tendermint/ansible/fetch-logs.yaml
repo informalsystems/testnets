@@ -12,7 +12,7 @@
     
     - name: Ensure service is stopped
       service: "name={{ service_name }} state=stopped"
-      when: ansible_facts.services[service_name].state == "running"
+      when: ansible_facts.services[service_name+".service"].state == "running"
     
     - name: Archive log files for node
       archive: 
@@ -21,7 +21,7 @@
 
     - name: Restart service on host(s) where it was running
       service: "name={{ service_name }} state=restarted"
-      when: ansible_facts.services[service_name].state == "running"
+      when: ansible_facts.services[service_name+".service"].state == "running"
     
     - name: Fetch compressed logs
       fetch:
