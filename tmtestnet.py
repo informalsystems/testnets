@@ -160,6 +160,12 @@ def main():
         help="Zero or more node or group IDs of network node(s). If this is not supplied, all nodes' logs will be fetched."
     )
 
+    # network info
+    parser_network_info = subparsers_network.add_parser(
+        "info",
+        help="Show information about a deployed network (e.g. hostnames and node IDs)",
+    )
+
     # loadtest
     parser_loadtest = subparsers.add_parser(
         "loadtest", 
@@ -306,6 +312,8 @@ def tmtestnet(cfg_file, command, subcommand, **kwargs) -> int:
             fn = network_stop
         elif subcommand == "fetch_logs":
             fn = network_fetch_logs
+        elif subcommand == "info":
+            fn = network_info
 
     if fn is None:    
         logger.error("Command/sub-command not yet supported: %s %s", command, subcommand)
@@ -518,6 +526,23 @@ def network_fetch_logs(
         resolve_relative_path(output_path, os.getcwd()),
         ec2_private_key_path,
     )
+
+
+def network_info(cfg: "TestnetConfig", **kwargs):
+    """Displays high-level information about a deployed network. Right now it 
+    just shows the node IDs and their corresponding hostnames."""
+    testnet_home = os.path.join(cfg.home, cfg.id)
+    if not os.path.isdir(testnet_home):
+        raise Exception("Cannot find testnet home directory for \"%s\" - have you deployed the network yet?" % cfg.id)
+
+    target_refs = [TestnetNodeRef(group=node_group_name) for node_group_name, _ in cfg.node_groups.items()]
+    host_refs = node_to_host_refs(
+        os.path.join(testnet_home, "tendermint"),
+        target_refs, 
+        fail_on_missing=False,
+    )
+    for host_ref in host_refs:
+        logger.info("%s[%d] => %s", host_ref.group, host_ref.id, host_ref.hostname)
 
 
 # -----------------------------------------------------------------------------
