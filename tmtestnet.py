@@ -515,7 +515,7 @@ def network_fetch_logs(
     ansible_fetch_logs(
         os.path.join(testnet_home, "tendermint"),
         target_refs,
-        output_path,
+        resolve_relative_path(output_path, os.getcwd()),
         ec2_private_key_path,
     )
 
