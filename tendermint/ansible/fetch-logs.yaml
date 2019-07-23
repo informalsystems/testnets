@@ -21,3 +21,7 @@
     - name: Unarchive compressed logs locally
       become: no
       local_action: "command tar xf {{ local_log_path }}/{{ inventory_hostname }}/archived-logs.tar.bz2 -C {{ local_log_path }}/{{ inventory_hostname }}"
+
+    - name: Delete local log archive
+      become: no
+      local_action: "command rm {{ local_log_path }}/{{ inventory_hostname }}/archived-logs.tar.bz2"
