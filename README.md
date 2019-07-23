@@ -142,6 +142,30 @@ service running on the host without stopping the host itself.
 ./tmtestnet.py -c mytestnets/testnet1.yaml -v network stop "my_validators[0]"
 ```
 
+### Showing Network Info
+To show which hostnames correspond to which node in each node group, simply 
+just:
+
+```bash
+./tmtestnet.py -c mytestnets/testnet1.yaml network info
+```
+
+### Fetching Logs
+You can use the `network fetch_logs` command to fetch Tendermint logs from one
+or more node groups/nodes:
+
+```bash
+# Will fetch all node groups' logs and dump them into a folder called 
+# "output-logs"
+./tmtestnet.py -c mytestnets/testnet1.yaml -v network fetch_logs ./output-logs
+
+# Will just fetch a single node group's logs
+./tmtestnet.py -c mytestnets/testnet1.yaml -v network fetch_logs ./output-logs my_validators
+
+# Will fetch a single node's logs
+./tmtestnet.py -c mytestnets/testnet1.yaml -v network fetch_logs ./output-logs "my_validators[0]"
+```
+
 ### Destroy the Network
 
 **NB: This is irreversibly destructive.**
