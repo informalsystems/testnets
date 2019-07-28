@@ -177,9 +177,12 @@ def main():
         help="The load testing-related sub-command to execute",
     )
 
-    # loadtest start <name>
+    # loadtest start <id>
     parser_loadtest_start = subparsers_loadtest.add_parser("start", help="Start a specific load test")
-    parser_loadtest_start.add_argument("name", help="The name of the load test to start")
+    parser_loadtest_start.add_argument("load_test_id", help="The ID of the load test to start")
+
+    # loadtest stop
+    parser_loadtest_stop = subparsers_loadtest.add_parser("stop", help="Stop any currently running load tests")
 
     args = parser.parse_args()
 
@@ -194,6 +197,7 @@ def main():
         "output_path": getattr(args, "output_path", None),
         "node_or_group_ids": getattr(args, "node_or_group_ids", []),
         "fail_on_missing": not getattr(args, "no_fail_on_missing", False),
+        "load_test_id": getattr(args, "load_test_id", None),
     }
     sys.exit(tmtestnet(args.config, args.command, args.subcommand, **kwargs))
 
@@ -237,10 +241,10 @@ volume_size = %(volume_size)d
 
 
 MONITOR_OUTPUT_VARS_TEMPLATE = """host:
-  public_dns: "{{ monitoring.outputs.host.value.public_dns }}"
-  public_ip: "{{ monitoring.outputs.host.value.public_ip }}"
-influxdb_url: "{{ monitoring.outputs.influxdb_url.value }}"
-grafana_url: "{{ monitoring.outputs.grafana_url.value }}"
+  public_dns: "{{ terraform_output.outputs.host.value.public_dns }}"
+  public_ip: "{{ terraform_output.outputs.host.value.public_ip }}"
+influxdb_url: "{{ terraform_output.outputs.influxdb_url.value }}"
+grafana_url: "{{ terraform_output.outputs.grafana_url.value }}"
 """
 
 
@@ -268,12 +272,33 @@ startid_euwest1 = %(startid_euwest1)d
 
 
 TENDERMINT_OUTPUT_VARS_TEMPLATE = """hosts:
-{% for region, hosts in tendermint.outputs.items() %}{% if hosts.value %}
+{% for region, hosts in terraform_output.outputs.items() %}{% if hosts.value %}
   {{ region }}:{% for node_id, node in hosts.value.items() %} 
     - {{ node_id }}:
         public_dns: {{ node.public_dns }}
         public_ip: {{ node.public_ip }}
 {% endfor %}{% endif %}{% endfor %}
+"""
+
+
+TMBENCH_INPUT_VARS_TEMPLATE = """keypair_name = \"%(keypair_name)s\"
+influxdb_url = \"%(influxdb_url)s\"
+influxdb_password = \"%(influxdb_password)s\"
+group = \"%(resource_group_id)s__%(load_test_id)s\"
+tmbench_instances = %(instances)d
+tmbench_time = %(test_time)d
+tmbench_broadcast_tx_method = \"%(broadcast_tx_method)s\"
+tmbench_connections = %(connections)d
+tmbench_rate = %(tx_rate)d
+tmbench_size = %(tx_size)d
+"""
+
+
+TMBENCH_OUTPUT_VARS_TEMPLATE = """hosts:
+{% for host_id, host in terraform_output.outputs.items() %}  {{ host_id }}:
+    public_dns: {{ host.public_dns }}
+    public_ip: {{ host.public_ip }}
+{% endfor %}
 """
 
 
@@ -314,6 +339,11 @@ def tmtestnet(cfg_file, command, subcommand, **kwargs) -> int:
             fn = network_fetch_logs
         elif subcommand == "info":
             fn = network_info
+    elif command == "loadtest":
+        if subcommand == "start":
+            fn = loadtest_start
+        elif subcommand == "stop":
+            fn = loadtest_stop
 
     if fn is None:    
         logger.error("Command/sub-command not yet supported: %s %s", command, subcommand)
@@ -545,6 +575,75 @@ def network_info(cfg: "TestnetConfig", **kwargs):
         logger.info("%s[%d] => %s", host_ref.group, host_ref.id, host_ref.hostname)
 
 
+def loadtest_start(
+    cfg: "TestnetConfig",
+    keypair_name: str,
+    node_or_group_ids: List[str],
+    load_test_id: str,
+    **kwargs,
+):
+    if load_test_id is None or len(load_test_id) == 0:
+        raise Exception("Missing load test ID")
+    if load_test_id not in cfg.load_tests:
+        raise Exception("Unrecognized load test ID: %s" % load_test_id)
+
+    influxdb_url, influxdb_password = load_influxdb_cfg(cfg)
+    if influxdb_url is None or influxdb_password is None:
+        raise Exception("Cannot find InfluxDB configuration for monitoring load test")
+    logger.debug("Using InfluxDB URL: %s", influxdb_url)
+    logger.debug("Using InfluxDB password: %s", mask_password(influxdb_password))
+
+    testnet_home = os.path.join(cfg.home, cfg.id)
+    workdir = os.path.join(testnet_home, load_test_id)
+    target_refs = as_testnet_node_refs(
+        node_or_group_ids or [],
+        "from command line parameters",
+    )
+    targets = node_to_host_refs(
+        os.path.join(testnet_home, "tendermint"),
+        target_refs,
+        fail_on_missing=True,
+    )
+    logger.debug("Using hosts for tm-bench load test: %s", targets)
+    if isinstance(cfg.load_tests[load_test_id], TestnetTMBenchConfig):
+        tmbench_cfg = cfg.load_tests[load_test_id]
+        terraform_deploy_tmbench(
+            workdir,
+            keypair_name,
+            cfg.id,
+            load_test_id,
+            tmbench_cfg.client_nodes,
+            targets,
+            tmbench_cfg.test_time,
+            tmbench_cfg.broadcast_tx_method,
+            tmbench_cfg.connections,
+            tmbench_cfg.rate,
+            tmbench_cfg.size,
+            influxdb_url,
+            influxdb_password,
+        )
+    else:
+        raise Exception("Unsupported load test type: %s" % type(cfg.load_tests[load_test_id]))
+
+
+def loadtest_stop(
+    cfg: "TestnetConfig", 
+    load_test_id: str,
+    **kwargs,
+):
+    if load_test_id is None or len(load_test_id) == 0:
+        raise Exception("Missing load test ID")
+    if load_test_id not in cfg.load_tests:
+        raise Exception("Unrecognized load test ID: %s" % load_test_id)
+
+    workdir = os.path.join(cfg.home, cfg.id, load_test_id)
+    if isinstance(cfg.load_tests[load_test_id], TestnetTMBenchConfig):
+        terraform_destroy_tmbench(
+            workdir,
+            load_test_id,
+        )
+
+
 # -----------------------------------------------------------------------------
 #
 #   Configuration
@@ -591,7 +690,7 @@ TestnetABCIPlaybookConfig = namedtuple("TestnetABCIPlaybookConfig",
 )
 TestnetTMBenchConfig = namedtuple("TestnetTMBenchConfig",
     ["client_nodes", "targets", "time", "broadcast_tx_method", "connections", "rate", "size"],
-    defaults=[1, [], 60, "async", 1, 1000, 250],
+    defaults=[1, [], 60, "async", 1, 1000, 100],
 )
 TestnetRegionConfig = namedtuple("TestnetRegionConfig",
     ["node_count", "start_id"],
@@ -805,7 +904,8 @@ def terraform_deploy_monitoring(
         })
     extra_vars = {
         "state": "present",
-        "resource_group_id": resource_group_id,
+        "project_path": "./monitor",
+        "workspace": resource_group_id,
         "input_vars_file": input_vars_file,
         "output_vars_template": output_vars_template,
         "output_vars_file": output_vars_file,
@@ -816,7 +916,7 @@ def terraform_deploy_monitoring(
     sh([
         "ansible-playbook", 
         "-e", "@%s" % extra_vars_file,
-        "monitor.yaml",
+        "ansible-terraform.yaml",
     ])
     logger.info("Monitoring successfully deployed")
 
@@ -843,7 +943,7 @@ def terraform_destroy_monitoring(workdir):
     sh([
         "ansible-playbook", 
         "-e", "@%s" % extra_vars_file,
-        "monitor.yaml",
+        "ansible-terraform.yaml",
     ])
     logger.info("Monitoring successfully destroyed")
 
@@ -882,9 +982,9 @@ def terraform_deploy_tendermint_node_group(
             input_vars["startid_%s" % shortened_region_id] = region.start_id
         f.write(TENDERMINT_INPUT_VARS_TEMPLATE % input_vars)
     extra_vars = {
+        "project_path": "./tendermint/terraform",
+        "workspace": "%s__%s" % (resource_group_id, node_group_name),
         "state": "present",
-        "resource_group_id": resource_group_id,
-        "node_group": node_group_name,
         "input_vars_file": input_vars_file,
         "output_vars_template": output_vars_template,
         "output_vars_file": output_vars_file,
@@ -895,7 +995,7 @@ def terraform_deploy_tendermint_node_group(
     sh([
         "ansible-playbook", 
         "-e", "@%s" % extra_vars_file,
-        "tendermint.yaml",
+        "ansible-terraform.yaml",
     ])
     logger.info("Tendermint node group successfully deployed")
 
@@ -944,9 +1044,89 @@ def terraform_destroy_tendermint_node_group(workdir):
     sh([
         "ansible-playbook", 
         "-e", "@%s" % extra_vars_file,
-        "tendermint.yaml",
+        "ansible-terraform.yaml",
     ])
     logger.info("Tendermint node group successfully destroyed: %s", extra_vars["node_group"])
+
+
+def terraform_deploy_tmbench(
+    workdir: str,
+    keypair_name: str,
+    resource_group_id: str,
+    load_test_id: str,
+    instances: int,
+    endpoints: List[str],
+    test_time: int,
+    broadcast_tx_method: str,
+    connections: int,
+    tx_rate: int,
+    tx_size: int,
+    influxdb_url: str,
+    influxdb_password: str,
+):
+    ensure_path_exists(workdir)
+    output_vars_template = os.path.join(workdir, "terraform-output-vars.yaml.jinja2")
+    with open(output_vars_template, "wt") as f:
+        f.write(TMBENCH_OUTPUT_VARS_TEMPLATE)
+    output_vars_file = os.path.join(workdir, "terraform-output-vars.yaml")
+    input_vars_file = os.path.join(workdir, "terraform_input_vars.tfvars")
+    extra_vars_file = os.path.join(workdir, "terraform-extra-vars.yaml")
+    with open(input_vars_file, "wt") as f:
+        f.write(TMBENCH_INPUT_VARS_TEMPLATE % {
+            "keypair_name": keypair_name,
+            "influxdb_url": influxdb_url,
+            "influxdb_password": influxdb_password,
+            "resource_group_id": resource_group_id,
+            "load_test_id": load_test_id,
+            "instances": instances,
+            "test_time": test_time,
+            "broadcast_tx_method": broadcast_tx_method,
+            "connections": connections,
+            "tx_rate": tx_rate,
+            "tx_size": tx_size,
+        })
+    extra_vars = {
+        "state": "present",
+        "project_path": "./tm-bench",
+        "workspace": "%s__%s" % (resource_group_id, load_test_id),
+        "input_vars_file": input_vars_file,
+        "output_vars_template": output_vars_template,
+        "output_vars_file": output_vars_file,
+    }
+    save_yaml_config(extra_vars_file, extra_vars)
+
+    logger.info("Deploying tm-bench load test: %s", load_test_id)
+    sh([
+        "ansible-playbook",
+        "-e", "@%s" % extra_vars_file,
+        "ansible-terraform.yaml",
+    ])
+    logger.info("Load test successfully deployed")
+
+    output_vars = load_yaml_config(output_vars_file)
+    # ensure we can SSH to these hosts
+    for _, host in output_vars["hosts"].items():
+         ensure_in_known_hosts(host["public_dns"])
+    return output_vars
+
+
+def terraform_destroy_tmbench(workdir: str, load_test_id: str):
+    extra_vars_file = os.path.join(workdir, "terraform-extra-vars.yaml")
+    if not os.path.isfile(extra_vars_file):
+        raise Exception("Cannot find %s when attempting to destroy tm-bench deployment" % extra_vars_file)
+
+    # Reopen the extra vars file, but just change the desired state
+    extra_vars = load_yaml_config(extra_vars_file)
+    extra_vars["state"] = "absent"
+    save_yaml_config(extra_vars_file, extra_vars)
+
+    logger.info("Destroying tm-bench load test: %s", load_test_id)
+    sh([
+        "ansible-playbook", 
+        "-e", "@%s" % extra_vars_file,
+        "ansible-terraform.yaml",
+    ])
+    logger.info("tm-bench load test successfully destroyed")
 
 
 def tendermint_generate_config(
@@ -1640,6 +1820,32 @@ def node_to_host_refs(
                 hostnames.append(TestnetHostRef(group=ref.group, id=ref.id, hostname=hostname))
                 seen_hostnames.add(hostname)
     return hostnames
+
+
+def load_influxdb_cfg(cfg: "TestnetConfig"):
+    """Attempts to load the relevant InfluxDB config, either from the 
+    preconfigured URL or from the monitoring setup we've deployed."""
+    if not cfg.monitoring.influxdb.enabled:
+        return None, None
+    
+    if not cfg.monitoring.influxdb.deploy:
+        return cfg.monitoring.influxdb.url, cfg.monitoring.influxdb.password
+    
+    # load the monitoring outputs
+    monitor_output_vars = load_yaml_config(
+        os.path.join(
+            cfg.home, 
+            cfg.id, 
+            "monitoring", 
+            "terraform-output-vars.yaml",
+        ),
+    )
+    return monitor_output_vars["influxdb_url"], cfg.monitoring.influxdb.password
+
+
+def mask_password(s: str) -> str:
+    mask_len = (len(s) * 2) // 3
+    return ("*" * mask_len) + s[mask_len:]
 
 
 if __name__ == "__main__":
