@@ -100,9 +100,14 @@ def main():
     )
 
     # network destroy
-    subparsers_network.add_parser(
+    parser_network_destroy = subparsers_network.add_parser(
         "destroy", 
         help="Destroy a deployed network",
+    )
+    parser_network_destroy.add_argument(
+        "--keep-monitoring",
+        action="store_true",
+        help="If this flag is set, any deployed monitoring services will be preserved, while all other services will be destroyed",
     )
 
     # network start
@@ -195,7 +200,7 @@ def main():
     )
 
     # loadtest destroy
-    parser_loadtest_destroy = subparsers_loadtest.add_parser(
+    subparsers_loadtest.add_parser(
         "destroy", 
         help="Stop any currently running load tests",
     )
@@ -214,6 +219,7 @@ def main():
         "node_or_group_ids": getattr(args, "node_or_group_ids", []),
         "fail_on_missing": not getattr(args, "no_fail_on_missing", False),
         "load_test_id": getattr(args, "load_test_id", None),
+        "keep_monitoring": getattr(args, "keep_monitoring", False),
     }
     sys.exit(tmtestnet(args.config, args.command, args.subcommand, **kwargs))
 
@@ -497,14 +503,23 @@ def network_deploy(
     network_info(cfg)
 
 
-def network_destroy(cfg: "TestnetConfig", **kwargs):
+def network_destroy(cfg: "TestnetConfig", keep_monitoring: bool = False, **kwargs):
     """Destroys the network according to the given configuration."""
     testnet_home = os.path.join(cfg.home, cfg.id)
+
+    # (1) destroy any load testing infrastructure that may still be running
+    loadtest_destroy(cfg, **kwargs)
+
+    # (2) destroy all Tendermint node groups
     for name, _ in reversed(cfg.node_groups.items()):
         terraform_destroy_tendermint_node_group(os.path.join(testnet_home, "tendermint", name))
 
+    # (3) optionally destroy the monitoring
     if cfg.monitoring.influxdb.enabled and cfg.monitoring.influxdb.deploy:
-        terraform_destroy_monitoring(os.path.join(testnet_home, "monitoring"))
+        if not keep_monitoring:
+            terraform_destroy_monitoring(os.path.join(testnet_home, "monitoring"))
+        else:
+            logger.info("Keeping monitoring services")
 
 
 def network_state(
