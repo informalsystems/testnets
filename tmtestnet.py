@@ -679,6 +679,7 @@ def loadtest_start(
 def loadtest_stop(
     cfg: "TestnetConfig", 
     load_test_id: str = None,
+    fail_on_missing: bool = True,
     **kwargs,
 ):
     if load_test_id is None or len(load_test_id) == 0:
@@ -691,12 +692,14 @@ def loadtest_stop(
         terraform_destroy_tmbench(
             workdir,
             load_test_id,
+            fail_on_missing=fail_on_missing,
         )
 
 
 def loadtest_destroy(cfg: "TestnetConfig", **kwargs):
     """Destroys all load testing-related resources."""
     _kwargs = deepcopy(kwargs)
+    _kwargs["fail_on_missing"] = False
     for load_test_id, _ in cfg.load_tests.items():
         _kwargs["load_test_id"] = load_test_id
         loadtest_stop(cfg, **_kwargs)
@@ -1003,6 +1006,10 @@ def terraform_destroy_monitoring(workdir):
     if not os.path.isfile(extra_vars_file):
         raise Exception("Cannot find %s when attempting to destroy monitoring deployment" % extra_vars_file)
     
+    output_vars_file = os.path.join(workdir, "terraform-output-vars.yaml")
+    if not os.path.isfile(output_vars_file):
+        raise Exception("Cannot find %s when attempting to destroy monitoring deployment" % output_vars_file)
+
     # Reopen the extra vars file, but just change the desired state
     extra_vars = load_yaml_config(extra_vars_file)
     extra_vars["state"] = "absent"
@@ -1014,6 +1021,11 @@ def terraform_destroy_monitoring(workdir):
         "-e", "@%s" % extra_vars_file,
         "ansible-terraform.yaml",
     ])
+
+    output_vars = load_yaml_config(output_vars_file)
+    logger.info("Removing cached host key for monitoring server")
+    clear_host_keys(output_vars["host"]["public_dns"])
+
     logger.info("Monitoring successfully destroyed")
 
 
@@ -1101,14 +1113,16 @@ def terraform_deploy_tendermint_node_group(
 def terraform_destroy_tendermint_node_group(workdir):
     extra_vars_file = os.path.join(workdir, "terraform-extra-vars.yaml")
     if not os.path.isfile(extra_vars_file):
-        raise Exception("Cannot find %s when attempting to destroy Tendermint deployment" % extra_vars_file)
+        raise Exception("Cannot find %s when attempting to destroy Tendermint node group" % extra_vars_file)
+
+    output_vars_file = os.path.join(workdir, "output-vars.yaml")
+    if not os.path.isfile(output_vars_file):
+        raise Exception("Cannot find %s when attempting to destroy Tendermint node group" % output_vars_file)
     
     # Reopen the extra vars file, but just change the desired state
-    with open(extra_vars_file, "rt") as f:
-        extra_vars = yaml.safe_load(f)
+    extra_vars = load_yaml_config(extra_vars_file)
     extra_vars["state"] = "absent"
-    with open(extra_vars_file, "wt") as f:
-        yaml.safe_dump(extra_vars, f)
+    save_yaml_config(extra_vars_file, extra_vars)
 
     logger.info("Destroying Tendermint node group: %s", extra_vars["node_group"])
     sh([
@@ -1116,6 +1130,12 @@ def terraform_destroy_tendermint_node_group(workdir):
         "-e", "@%s" % extra_vars_file,
         "ansible-terraform.yaml",
     ])
+
+    output_vars = load_yaml_config(output_vars_file)
+    hostnames = [hostname for hostname in output_vars["inventory_ordered"]]
+    logger.info("Removing cached host keys from local known_hosts for node group")
+    clear_all_host_keys(hostnames)
+
     logger.info("Tendermint node group successfully destroyed: %s", extra_vars["node_group"])
 
 
@@ -1181,10 +1201,20 @@ def terraform_deploy_tmbench(
     return output_vars
 
 
-def terraform_destroy_tmbench(workdir: str, load_test_id: str):
+def terraform_destroy_tmbench(workdir: str, load_test_id: str, fail_on_missing: bool = True):
     extra_vars_file = os.path.join(workdir, "terraform-extra-vars.yaml")
     if not os.path.isfile(extra_vars_file):
-        raise Exception("Cannot find %s when attempting to destroy tm-bench deployment" % extra_vars_file)
+        if fail_on_missing:
+            raise Exception("Cannot find %s when attempting to destroy tm-bench deployment" % extra_vars_file)
+        logger.debug("Load test %s was not previously deployed - skipping", load_test_id)
+        return
+
+    output_vars_file = os.path.join(workdir, "terraform-output-vars.yaml")
+    if not os.path.isfile(output_vars_file):
+        if fail_on_missing:
+            raise Exception("Cannot find %s when attempting to destroy tm-bench deployment" % output_vars_file)
+        logger.debug("Load test %s was not previously deployed - skipping", load_test_id)
+        return
 
     # Reopen the extra vars file, but just change the desired state
     extra_vars = load_yaml_config(extra_vars_file)
@@ -1197,6 +1227,13 @@ def terraform_destroy_tmbench(workdir: str, load_test_id: str):
         "-e", "@%s" % extra_vars_file,
         "ansible-terraform.yaml",
     ])
+
+    logger.info("Removing cached host keys from local known_hosts for load test: %s", load_test_id)
+    # read the hostnames from the output variables
+    output_vars = load_yaml_config(output_vars_file)
+    hostnames = [host["public_dns"] for _, host in output_vars["hosts"].items()]
+    clear_all_host_keys(hostnames)
+
     logger.info("tm-bench load test successfully destroyed")
 
 
@@ -1757,13 +1794,19 @@ def get_host_keys(hostname, retries=10, retry_wait=5):
     raise Exception("Call to ssh-keyscan failed with return code %d" % p.returncode)
 
 
-def clear_host_keys(hostname):
+def clear_host_keys(hostname: str):
     logger.debug("Removing any existing keys for host: %s", hostname)
     with subprocess.Popen(["ssh-keygen", "-R", hostname], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as p:
         while p.poll() is None:
             time.sleep(1)
         if p.returncode != 0:
             raise Exception("Call to ssh-keygen failed with return code %d" % p.returncode)
+
+
+def clear_all_host_keys(hostnames: List[str]):
+    logger.debug("Removing host keys for hostnames: %s", hostnames)
+    for hostname in hostnames:
+        clear_host_keys(hostname)
 
 
 def ensure_in_known_hosts(hostname):
