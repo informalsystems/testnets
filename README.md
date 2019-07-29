@@ -19,7 +19,9 @@ aims to programmatically and automatically combine the execution of the above
 Terraform and Ansible scripts to allow you to deploy relatively complex
 Tendermint **test networks** with ease.
 
-**NOTE: This is not intended for production use.**
+**NOTE: This is intended for setting up test networks for relatively short-lived
+experimentation. This is not intended for setting up Tendermint production
+networks.**
 
 ### Requirements
 In order to use the `tmtestnet` tool, you will need the following software
