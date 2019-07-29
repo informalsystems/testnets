@@ -493,6 +493,9 @@ def network_deploy(
 
     logger.info("Success!")
 
+    # show the network information
+    network_info(cfg)
+
 
 def network_destroy(cfg: "TestnetConfig", **kwargs):
     """Destroys the network according to the given configuration."""
