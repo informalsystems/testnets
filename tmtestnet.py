@@ -100,7 +100,7 @@ def main():
     )
 
     # network destroy
-    parser_network_destroy = subparsers_network.add_parser(
+    subparsers_network.add_parser(
         "destroy", 
         help="Destroy a deployed network",
     )
@@ -161,7 +161,7 @@ def main():
     )
 
     # network info
-    parser_network_info = subparsers_network.add_parser(
+    subparsers_network.add_parser(
         "info",
         help="Show information about a deployed network (e.g. hostnames and node IDs)",
     )
