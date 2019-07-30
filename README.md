@@ -144,6 +144,14 @@ service running on the host without stopping the host itself.
 ./tmtestnet.py -c mytestnets/testnet1.yaml -v network stop "my_validators[0]"
 ```
 
+### Reset Tendermint Network
+Sometimes you want to reset your Tendermint network without necessarily
+destroying all of your VMs. To do this, simply:
+
+```bash
+./tmtestnet.py -c mytestnets/testnet1.yaml -v network reset
+```
+
 ### Showing Network Info
 To show which hostnames correspond to which node in each node group, simply 
 just:
