@@ -165,6 +165,12 @@ def main():
         help="Zero or more node or group IDs of network node(s). If this is not supplied, all nodes' logs will be fetched."
     )
 
+    # network reset
+    subparsers_network.add_parser(
+        "reset",
+        help="Reset the entire Tendermint network without redeploying VMs",
+    )
+
     # network info
     subparsers_network.add_parser(
         "info",
@@ -360,6 +366,8 @@ def tmtestnet(cfg_file, command, subcommand, **kwargs) -> int:
             fn = network_stop
         elif subcommand == "fetch_logs":
             fn = network_fetch_logs
+        elif subcommand == "reset":
+            fn = network_reset
         elif subcommand == "info":
             fn = network_info
     elif command == "loadtest":
@@ -593,6 +601,95 @@ def network_fetch_logs(
         resolve_relative_path(output_path, os.getcwd()),
         ec2_private_key_path,
     )
+
+
+def network_reset(
+    cfg: "TestnetConfig", 
+    ec2_private_key_path: str = None,
+    keep_existing_tendermint_config: bool = False,
+    **kwargs,
+):
+    """(Re)deploys Tendermint on all target nodes."""
+    if not os.path.exists(ec2_private_key_path):
+        raise Exception("Cannot find EC2 private key: %s" % ec2_private_key_path)
+
+    binaries_path = os.path.join(cfg.home, "bin")
+    binaries = ensure_tendermint_binaries(cfg.node_groups, binaries_path)
+
+    # first ensure that the whole network has stopped, otherwise newer deployed
+    # services could interfere with one another
+    network_stop(
+        cfg, 
+        fail_on_missing=False, 
+        fail_on_error=False, 
+        ec2_private_key_path=ec2_private_key_path,
+    )
+
+    testnet_home = os.path.join(cfg.home, cfg.id)
+
+    # load the deployment outputs for all node groups and generate/load
+    # Tendermint configuration for each one
+    tendermint_outputs = OrderedDict()
+    for name, node_group_cfg in cfg.node_groups.items():
+        output_vars_filename = os.path.join(testnet_home, "tendermint", name, "output-vars.yaml")
+        tendermint_outputs[name] = load_yaml_config(output_vars_filename)
+
+    # generate the Tendermint network configuration
+    tendermint_config = OrderedDict()
+    for node_group_name, node_group_outputs in tendermint_outputs.items():
+        node_group_cfg = cfg.node_groups[node_group_name]
+        node_count = len(node_group_outputs["inventory_ordered"])
+        # if we're generating configuration
+        if node_group_cfg.generate_tendermint_config:
+            config_path = os.path.join(testnet_home, "tendermint", node_group_name, "config")
+            tendermint_config[node_group_name] = tendermint_generate_config(
+                config_path,
+                node_group_name,
+                node_group_cfg.config_template,
+                node_count if node_group_cfg.validators else 0,
+                0 if node_group_cfg.validators else node_count,
+                node_group_outputs["inventory_ordered"],
+                keep_existing_tendermint_config,
+            )
+        else:
+            # if we're just loading/modifying existing configuration
+            tendermint_config[node_group_name] = tendermint_load_nodes_config(
+                node_group_cfg.custom_tendermint_config_root,
+                node_count,
+            )
+
+    # reconcile the configuration across the nodes
+    tendermint_finalize_config(cfg, tendermint_config)
+
+    # keep track of which groups need to be started
+    start_groups = []
+    # deploy all node groups' configuration and start the relevant nodes
+    for node_group_name, node_group_outputs in tendermint_outputs.items():
+        node_group_cfg = cfg.node_groups[node_group_name]
+        if node_group_cfg.generate_tendermint_config:
+            config_path = os.path.join(testnet_home, "tendermint", node_group_name, "config")
+        else:
+            config_path = node_group_cfg.custom_tendermint_config_root
+        ansible_deploy_tendermint_node_group(
+            os.path.join(testnet_home, "tendermint", node_group_name),
+            node_group_outputs["inventory_file"],
+            config_path,
+            binaries[node_group_cfg.binary],
+            node_group_cfg.service_state,
+            node_group_cfg.abci,
+            ec2_private_key_path,
+        )
+        if node_group_cfg.service_state in ["started", "restarted"]:
+            start_groups.append(node_group_name)
+
+    # start all nodes (that we want started) simultaneously
+    network_start(
+        cfg,
+        node_or_group_ids=start_groups,
+        ec2_private_key_path=ec2_private_key_path,
+    )
+
+    logger.info("Success!")
 
 
 def network_info(cfg: "TestnetConfig", **kwargs):
