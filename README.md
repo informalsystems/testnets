@@ -145,12 +145,19 @@ service running on the host without stopping the host itself.
 ```
 
 ### Reset Tendermint Network
+
+**NB: This is irreversibly destructive.**
+
 Sometimes you want to reset your Tendermint network without necessarily
 destroying all of your VMs. To do this, simply:
 
 ```bash
 ./tmtestnet.py -c mytestnets/testnet1.yaml -v network reset
 ```
+
+This will stop all Tendermint nodes, destroy their data, regenerate and deploy
+their configuration, and restart all node groups that should be started (as per
+the configuration file).
 
 ### Showing Network Info
 To show which hostnames correspond to which node in each node group, simply 
