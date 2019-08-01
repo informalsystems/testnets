@@ -405,11 +405,6 @@ def network_deploy(
     if not os.path.exists(ec2_private_key_path):
         raise Exception("Cannot find EC2 private key: %s" % ec2_private_key_path)
 
-    # first we get the Tendermint network config, so we can validate and
-    # download any binaries we may need
-    binaries_path = os.path.join(cfg.home, "bin")
-    binaries = ensure_tendermint_binaries(cfg.node_groups, binaries_path)
-
     testnet_home = os.path.join(cfg.home, cfg.id)
 
     # next up, optionally deploy monitoring
@@ -441,73 +436,13 @@ def network_deploy(
             node_group_cfg.regions,
         )
 
-    # then we ensure that all Tendermint services have been stopped if we have
-    # anything at all running at the moment, otherwise this could cause problems
-    network_stop(
+    # reuse the network_reset functionality
+    network_reset(
         cfg, 
-        fail_on_missing=False, 
-        fail_on_error=False, 
         ec2_private_key_path=ec2_private_key_path,
+        keep_existing_tendermint_config=keep_existing_tendermint_config,
+        **kwargs,
     )
-
-    # generate the Tendermint network configuration
-    tendermint_config = OrderedDict()
-    for node_group_name, node_group_outputs in tendermint_outputs.items():
-        node_group_cfg = cfg.node_groups[node_group_name]
-        node_count = len(node_group_outputs["inventory_ordered"])
-        # if we're generating configuration
-        if node_group_cfg.generate_tendermint_config:
-            config_path = os.path.join(testnet_home, "tendermint", node_group_name, "config")
-            tendermint_config[node_group_name] = tendermint_generate_config(
-                config_path,
-                node_group_name,
-                node_group_cfg.config_template,
-                node_count if node_group_cfg.validators else 0,
-                0 if node_group_cfg.validators else node_count,
-                node_group_outputs["inventory_ordered"],
-                keep_existing_tendermint_config,
-            )
-        else:
-            # if we're just loading/modifying existing configuration
-            tendermint_config[node_group_name] = tendermint_load_nodes_config(
-                node_group_cfg.custom_tendermint_config_root,
-                node_count,
-            )
-
-    # reconcile the configuration across the nodes
-    tendermint_finalize_config(cfg, tendermint_config)
-
-    # keep track of which groups need to be started
-    start_groups = []
-    # deploy all node groups' configuration and start the relevant nodes
-    for node_group_name, node_group_outputs in tendermint_outputs.items():
-        node_group_cfg = cfg.node_groups[node_group_name]
-        if node_group_cfg.generate_tendermint_config:
-            config_path = os.path.join(testnet_home, "tendermint", node_group_name, "config")
-        else:
-            config_path = node_group_cfg.custom_tendermint_config_root
-        ansible_deploy_tendermint_node_group(
-            os.path.join(testnet_home, "tendermint", node_group_name),
-            node_group_outputs["inventory_file"],
-            config_path,
-            binaries[node_group_cfg.binary],
-            node_group_cfg.service_state,
-            node_group_cfg.abci,
-            ec2_private_key_path,
-        )
-        if node_group_cfg.service_state in ["started", "restarted"]:
-            start_groups.append(node_group_name)
-
-    # start all nodes (that we want started) simultaneously
-    network_start(
-        cfg,
-        node_or_group_ids=start_groups,
-        ec2_private_key_path=ec2_private_key_path,
-    )
-
-    logger.info("Success!")
-
-    # show the network information
     network_info(cfg)
 
 
@@ -616,15 +551,6 @@ def network_reset(
     binaries_path = os.path.join(cfg.home, "bin")
     binaries = ensure_tendermint_binaries(cfg.node_groups, binaries_path)
 
-    # first ensure that the whole network has stopped, otherwise newer deployed
-    # services could interfere with one another
-    network_stop(
-        cfg, 
-        fail_on_missing=False, 
-        fail_on_error=False, 
-        ec2_private_key_path=ec2_private_key_path,
-    )
-
     testnet_home = os.path.join(cfg.home, cfg.id)
 
     # load the deployment outputs for all node groups and generate/load
@@ -661,35 +587,13 @@ def network_reset(
     # reconcile the configuration across the nodes
     tendermint_finalize_config(cfg, tendermint_config)
 
-    # keep track of which groups need to be started
-    start_groups = []
     # deploy all node groups' configuration and start the relevant nodes
-    for node_group_name, node_group_outputs in tendermint_outputs.items():
-        node_group_cfg = cfg.node_groups[node_group_name]
-        if node_group_cfg.generate_tendermint_config:
-            config_path = os.path.join(testnet_home, "tendermint", node_group_name, "config")
-        else:
-            config_path = node_group_cfg.custom_tendermint_config_root
-        ansible_deploy_tendermint_node_group(
-            os.path.join(testnet_home, "tendermint", node_group_name),
-            node_group_outputs["inventory_file"],
-            config_path,
-            binaries[node_group_cfg.binary],
-            node_group_cfg.service_state,
-            node_group_cfg.abci,
-            ec2_private_key_path,
-        )
-        if node_group_cfg.service_state in ["started", "restarted"]:
-            start_groups.append(node_group_name)
-
-    # start all nodes (that we want started) simultaneously
-    network_start(
+    ansible_deploy_tendermint(
         cfg,
-        node_or_group_ids=start_groups,
-        ec2_private_key_path=ec2_private_key_path,
+        tendermint_outputs,
+        binaries,
+        ec2_private_key_path,
     )
-
-    logger.info("Success!")
 
 
 def network_info(cfg: "TestnetConfig", **kwargs):
@@ -872,6 +776,12 @@ TendermintNodePrivValidatorKey = namedtuple("TendermintNodePrivValidatorKey",
 )
 TendermintNodeKey = namedtuple("TendermintNodeKey", 
     ["type", "value"],
+)
+
+
+AnsibleInventoryEntry = namedtuple("AnsibleInventoryEntry",
+    ["alias", "ansible_host", "node_group", "node_id"],
+    defaults=[None, None, None, None],
 )
 
 
@@ -1127,14 +1037,14 @@ def terraform_destroy_monitoring(workdir):
 
 
 def terraform_deploy_tendermint_node_group(
-    workdir,
-    keypair_name,
-    resource_group_id,
-    node_group_name,
-    influxdb_url,
-    influxdb_password,
-    instance_type,
-    volume_size,
+    workdir: str,
+    keypair_name: str,
+    resource_group_id: str,
+    node_group_name: str,
+    influxdb_url: str,
+    influxdb_password: str,
+    instance_type: str,
+    volume_size: int,
     regions: OrderedDictType[str, "TestnetRegionConfig"],
 ):
     ensure_path_exists(workdir)
@@ -1449,35 +1359,66 @@ def tendermint_finalize_config(cfg: "TestnetConfig", tendermint_config: Dict[str
             logger.debug("Wrote genesis file: %s", node_genesis_file)
 
 
-def ansible_deploy_tendermint_node_group(
-    workdir: str,
-    inventory_file: str,
-    config_path: str,
-    binary: str,
-    service_state: str,
-    abci_cfg,
+def ansible_deploy_tendermint(
+    cfg: TestnetConfig,
+    tendermint_outputs: OrderedDictType,
+    binaries: Dict[str, str],
     ec2_private_key_path: str,
 ):
-    logger.info("Deploying node group configuration: %s", config_path)
+    workdir = os.path.join(cfg.home, cfg.id, "tendermint")
+    if not os.path.isdir(workdir):
+        raise Exception("Missing working directory: %s" % workdir)
+    
+    logger.info("Generating Ansible configuration for all node groups")
+    inventory = OrderedDict()
+    inventory["tendermint"] = []
+    node_group_vars = dict()
+    # first we generate the Ansible extra-vars and inventory for all node groups
+    for node_group_name, node_group_cfg in cfg.node_groups.items():
+        node_group_vars[node_group_name] = {
+            "service_name": "tendermint",
+            "service_user": "tendermint",
+            "service_group": "tendermint",
+            "service_user_shell": "/bin/bash",
+            "service_state": node_group_cfg.service_state,
+            "service_template": "tendermint.service.jinja2",
+            "service_desc": "Tendermint",
+            "service_exec_cmd": "/usr/bin/tendermint node",
+            "src_binary": binaries[node_group_cfg.binary],
+            "dest_binary": "/usr/bin/tendermint",
+            "src_config_path": os.path.join(workdir, node_group_name, "config"),
+        }
+        outputs = tendermint_outputs[node_group_name]
+        i = 0
+        for hostname in outputs["inventory_ordered"]:
+            node_id = "node%d" % i
+            inventory["tendermint"].append(
+                AnsibleInventoryEntry(
+                    alias="%s__%s" % (node_group_name, node_id),
+                    ansible_host=hostname,
+                    node_group=node_group_name,
+                    node_id=node_id,
+                ),
+            )
+            i += 1
+    
+    extra_vars = {"node_groups": node_group_vars}
 
-    logger.info("Using binary: %s", binary)
-    extra_vars_file = os.path.join(workdir, "ansible-extra-vars.yaml")
-    extra_vars = {
-        "service_state": "stopped",
-        "src_binary": binary,
-        "src_config_path": config_path,
-        "copy_node_config": True,
-    }
+    inventory_file = os.path.join(workdir, "inventory")
+    save_ansible_inventory(inventory_file, inventory)
+    extra_vars_file = os.path.join(workdir, "extra-vars.yaml")
     save_yaml_config(extra_vars_file, extra_vars)
 
+    logger.info("Deploying Tendermint network")
     sh([
         "ansible-playbook",
         "-i", inventory_file,
-        "-u", "ec2-user",
         "-e", "@%s" % extra_vars_file,
+        "-u", "ec2-user",
         "--private-key", ec2_private_key_path,
         os.path.join("tendermint", "ansible", "deploy.yaml"),
     ])
+    logger.info("Tendermint network successfully deployed")
 
 
 def ansible_set_tendermint_nodes_state(
@@ -1820,7 +1761,10 @@ def ensure_tendermint_binary(path: str, download_path: str) -> str:
     return bin_path
 
 
-def ensure_tendermint_binaries(cfg: OrderedDictType[str, TestnetNodeGroupConfig], download_path: str):
+def ensure_tendermint_binaries(
+    cfg: OrderedDictType[str, TestnetNodeGroupConfig], 
+    download_path: str,
+) -> Dict[str, str]:
     ensure_path_exists(download_path)
     seen_bins = set()
     result = dict()
@@ -1979,13 +1923,34 @@ def unique_peer_ids(
     return result
 
 
-def save_ansible_inventory(filename: str, inventory: OrderedDictType[str, List[str]]):
-    """Writes the given inventory structure to an Ansible inventory file."""
+def save_ansible_inventory(filename: str, inventory: OrderedDictType[str, List]):
+    """Writes the given inventory structure to an Ansible inventory file.
+    The `inventory` variable is an ordered mapping of group names to lists of
+    hostnames (plain strings) or AnsibleInventoryEntry instances.
+
+    If you use any AnsibleInventoryEntry instances in your inventory lists, the
+    `alias` property is required.
+    """
     with open(filename, "wt") as f:
-        for group_name, hostnames in inventory.items():
+        for group_name, entries in inventory.items():
             f.write("[%s]\n" % group_name)
-            for hostname in hostnames:
-                f.write("%s\n" % hostname)
+            for entry in entries:
+                if isinstance(entry, str):
+                    f.write("%s\n" % entry)
+                elif isinstance(entry, AnsibleInventoryEntry):
+                    if entry.alias is None:
+                        raise Exception("Missing alias for Ansible inventory entry in group: %s" % group_name)
+                    line = "%s" % entry.alias
+                    if entry.ansible_host is not None:
+                        line += " ansible_host=%s" % entry.ansible_host
+                    if entry.node_group is not None:
+                        line += " node_group=%s" % entry.node_group
+                    if entry.node_id is not None:
+                        line += " node_id=%s" % entry.node_id
+                    f.write("%s\n" % line)
+                else:
+                    raise Exception("Unknown type for Ansible inventory entry: %s" % entry)
+                    
             f.write("\n")
 
 

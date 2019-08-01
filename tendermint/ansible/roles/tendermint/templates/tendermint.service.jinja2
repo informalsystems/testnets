@@ -1,14 +1,14 @@
 [Unit]
-Description={{ service_desc }}
+Description={{ node_groups[node_group]['service_desc'] }}
 Requires=network-online.target
 After=network-online.target
 
 [Service]
 Restart=on-failure
-User={{ service_user }}
-Group={{ service_group }}
+User={{ node_groups[node_group]['service_user'] }}
+Group={{ node_groups[node_group]['service_group'] }}
 PermissionsStartOnly=true
-ExecStart={{ service_exec_cmd }}
+ExecStart={{ node_groups[node_group]['service_exec_cmd'] }}
 KillSignal=SIGTERM
 LimitAS=infinity
 LimitRSS=infinity
@@ -17,7 +17,7 @@ LimitNOFILE=65536
 LimitMEMLOCK=infinity
 StandardOutput=syslog
 StandardError=syslog
-SyslogIdentifier={{ service_name }}
+SyslogIdentifier={{ node_groups[node_group]['service_name'] }}
 
 [Install]
 WantedBy=multi-user.target
