@@ -7,6 +7,8 @@
     # For this script to work, you need a `node_groups` variable whose entries
     # correspond to the configurations for each and every node group you want to
     # deploy.
+  
     copy_node_config: yes
+    truncate_logs: no
   roles:
     - tendermint

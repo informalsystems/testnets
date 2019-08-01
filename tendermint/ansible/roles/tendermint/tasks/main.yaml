@@ -36,6 +36,14 @@
   file: "path=/home/{{ node_groups[node_group]['service_user'] }}/.tendermint state=absent"
   when: copy_node_config == True
 
+- name: Optionally truncate Tendermint logs
+  copy: content='' dest=/var/log/tendermint.log
+  when: truncate_logs == True
+
+- name: Restart rsyslog if Tendermint logs were truncated
+  service: name=rsyslog state=restarted
+  when: truncate_logs == True
+
 - name: Copy the Tendermint node configuration across
   copy:
     src: "{{ node_groups[node_group]['src_config_path'] }}/{{ node_id }}/"

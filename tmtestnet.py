@@ -166,9 +166,14 @@ def main():
     )
 
     # network reset
-    subparsers_network.add_parser(
+    parser_network_reset = subparsers_network.add_parser(
         "reset",
         help="Reset the entire Tendermint network without redeploying VMs",
+    )
+    parser_network_reset.add_argument(
+        "--truncate-logs",
+        action="store_true",
+        help="If set, the network reset operation will truncate the Tendermint logs prior to starting Tendermint",
     )
 
     # network info
@@ -226,6 +231,7 @@ def main():
         "fail_on_missing": not getattr(args, "no_fail_on_missing", False),
         "load_test_id": getattr(args, "load_test_id", None),
         "keep_monitoring": getattr(args, "keep_monitoring", False),
+        "truncate_logs": getattr(args, "truncate_logs", False),
     }
     sys.exit(tmtestnet(args.config, args.command, args.subcommand, **kwargs))
 
@@ -539,7 +545,8 @@ def network_fetch_logs(
 
 
 def network_reset(
-    cfg: "TestnetConfig", 
+    cfg: "TestnetConfig",
+    truncate_logs: bool = False,
     ec2_private_key_path: str = None,
     keep_existing_tendermint_config: bool = False,
     **kwargs,
@@ -593,6 +600,7 @@ def network_reset(
         tendermint_outputs,
         binaries,
         ec2_private_key_path,
+        truncate_logs=truncate_logs,
     )
 
 
@@ -1364,6 +1372,7 @@ def ansible_deploy_tendermint(
     tendermint_outputs: OrderedDictType,
     binaries: Dict[str, str],
     ec2_private_key_path: str,
+    truncate_logs: bool = False,
 ):
     workdir = os.path.join(cfg.home, cfg.id, "tendermint")
     if not os.path.isdir(workdir):
@@ -1402,7 +1411,10 @@ def ansible_deploy_tendermint(
             )
             i += 1
     
-    extra_vars = {"node_groups": node_group_vars}
+    extra_vars = {
+        "node_groups": node_group_vars,
+        "truncate_logs": truncate_logs,
+    }
 
     inventory_file = os.path.join(workdir, "inventory")
     save_ansible_inventory(inventory_file, inventory)
