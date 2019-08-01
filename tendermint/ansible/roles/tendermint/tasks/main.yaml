@@ -1,61 +1,61 @@
 # Playbook for helping to deploy Tendermint
 ---
 - name: Check if service is present
-  stat: "path=/etc/systemd/system/{{ service_name }}.service"
+  stat: "path=/etc/systemd/system/{{ node_groups[node_group]['service_name'] }}.service"
   register: svc
 
 - name: Stop service if present
-  service: "name={{ service_name }} state=stopped"
+  service: "name={{ node_groups[node_group]['service_name'] }} state=stopped"
   when: svc.stat.exists
 
 - name: Ensure service group exists
   group:
-    name: "{{ service_group }}"
+    name: "{{ node_groups[node_group]['service_group'] }}"
     state: present
 
 - name: Ensure service user exists
   user:
-    name: "{{ service_user }}"
-    shell: "{{ service_user_shell }}"
-    home: "/home/{{ service_user }}"
-    group: "{{ service_group }}"
+    name: "{{ node_groups[node_group]['service_user'] }}"
+    shell: "{{ node_groups[node_group]['service_user_shell'] }}"
+    home: "/home/{{ node_groups[node_group]['service_user'] }}"
+    group: "{{ node_groups[node_group]['service_group'] }}"
 
 - name: Sync the service binary across to the server
   synchronize:
-    src: "{{ src_binary }}"
-    dest: "{{ dest_binary }}"
+    src: "{{ node_groups[node_group]['src_binary'] }}"
+    dest: "{{ node_groups[node_group]['dest_binary'] }}"
 
 - name: Ensure correct service binary permissions
   file:
-    path: "{{ dest_binary }}"
+    path: "{{ node_groups[node_group]['dest_binary'] }}"
     mode: 0755
     owner: "root"
     group: "root"
 
 - name: Delete any existing Tendermint configuration/data
-  file: "path=/home/{{ service_user }}/.tendermint state=absent"
+  file: "path=/home/{{ node_groups[node_group]['service_user'] }}/.tendermint state=absent"
   when: copy_node_config == True
 
 - name: Copy the Tendermint node configuration across
   copy:
-    src: "{{ src_config_path }}/{{ inventory_hostname }}/"
-    dest: "/home/{{ service_user }}/.tendermint/"
+    src: "{{ node_groups[node_group]['src_config_path'] }}/{{ node_id }}/"
+    dest: "/home/{{ node_groups[node_group]['service_user'] }}/.tendermint/"
   when: copy_node_config == True
 
 - name: Ensure the service user owns the Tendermint home directory
   file:
-    path: "/home/{{ service_user }}/.tendermint/"
+    path: "/home/{{ node_groups[node_group]['service_user'] }}/.tendermint/"
     recurse: yes
-    owner: "{{ service_user }}"
-    group: "{{ service_group }}"
+    owner: "{{ node_groups[node_group]['service_user'] }}"
+    group: "{{ node_groups[node_group]['service_group'] }}"
 
 - name: Ensure systemd service is present
   template:
-    src: "{{ service_template }}"
-    dest: "/etc/systemd/system/{{ service_name }}.service"
+    src: "{{ node_groups[node_group]['service_template'] }}"
+    dest: "/etc/systemd/system/{{ node_groups[node_group]['service_name'] }}.service"
 
 - name: Reload systemd
   systemd: daemon_reload=yes
 
 - name: Set service to required state
-  service: "name={{ service_name }} state={{ service_state }}"
+  service: "name={{ node_groups[node_group]['service_name'] }} state={{ node_groups[node_group]['service_state'] }}"
