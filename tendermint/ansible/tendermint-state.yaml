@@ -2,6 +2,7 @@
 - hosts: tendermint
   become: yes
   become_user: root
+  gather_facts: no
   tasks:
     - name: Set Tendermint service to desired state
       service: "name=tendermint state={{ state }}"
