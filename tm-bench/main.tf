@@ -30,7 +30,7 @@ variable "tmbench_instances" {
 variable "instance_type" {
     type        = string
     description = "The AWS EC2 instance type for the tm-bench nodes to be deployed"
-    default     = "t3.small"
+    default     = "t2.micro"
 }
 
 variable "group" {

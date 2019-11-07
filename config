@@ -1,0 +1,8 @@
+# Get the AWS profile containing our access key ID and secret access key.
+source ~/.aws/profile
+
+# Based on instructions from testnets/README.md
+
+export EC2_PRIVATE_KEY=~/.ssh/ec2-user
+export INFLUXDB_PASSWORD=somereallyhardpassword
+

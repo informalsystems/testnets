@@ -735,7 +735,7 @@ TestnetSignalFXConfig = namedtuple("TestnetSignalFXConfig",
 )
 TestnetInfluxDBConfig = namedtuple("TestnetInfluxDBConfig",
     ["enabled", "deploy", "region", "url", "password", "instance_type", "volume_size"],
-    defaults=[False, False, "us-east-1", None, None, "t3.small", 10],
+    defaults=[False, False, "us-east-1", None, None, "t2.micro", 10],
 )
 TestnetNodeGroupConfig = namedtuple("TestnetNodeGroupConfig",
     [
@@ -747,7 +747,7 @@ TestnetNodeGroupConfig = namedtuple("TestnetNodeGroupConfig",
     defaults=[
         None, None, True, True, 1000, "started",
         None, [], [], OrderedDict(), 
-        "t3.small", 8, True,
+        "t2.micro", 8, True,
         None,
     ],
 )

@@ -18,7 +18,7 @@ variable "keypair_name" {
 variable "instance_type" {
     type        = string
     description = "The AWS EC2 instance type for the monitoring node to be deployed"
-    default     = "t3.small"
+    default     = "t2.micro"
 }
 
 variable "group" {
