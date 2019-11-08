@@ -37,10 +37,8 @@ node_groups:
       persistent_peers:
         - validators
       regions:
-        - us_east_1: 1
-        - eu_central_1: 1
-        - ap_northeast_2: 1
-        - ap_southeast_2: 1
+        - us_east_1: 2
+        - us_east_2: 2
 
 load_tests:
   - 100_txs_per_sec:
