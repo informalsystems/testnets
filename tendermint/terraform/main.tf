@@ -210,7 +210,7 @@ module "tendermint_useast1" {
         aws = aws.useast1
     }
 
-    ami_id                       = "ami-0d344de126a83ea6b"
+    ami_id                       = "ami-0ec2a36c4d3b36aab"
     keypair_name                 = "${var.keypair_name}"
     nodes                        = var.nodes_useast1
     instance_type                = "${var.instance_type}"
@@ -246,7 +246,7 @@ module "tendermint_useast2" {
         aws = aws.useast2
     }
 
-    ami_id                       = "ami-067d2e270cd38fd54"
+    ami_id                       = "ami-0cb2b8219763010f8"
     keypair_name                 = "${var.keypair_name}"
     nodes                        = var.nodes_useast2
     instance_type                = "${var.instance_type}"

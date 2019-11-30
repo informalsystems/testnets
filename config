@@ -3,6 +3,6 @@ source ~/.aws/profile
 
 # Based on instructions from testnets/README.md
 
-export EC2_PRIVATE_KEY=~/.ssh/ec2-user
+export EC2_PRIVATE_KEY=~/.ssh/aws_interchain
 export INFLUXDB_PASSWORD=somereallyhardpassword
 
