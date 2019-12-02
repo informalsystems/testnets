@@ -207,7 +207,7 @@ dial_timeout = "3s"
 [mempool]
 
 recheck = false
-broadcast = true
+broadcast = false
 wal_dir = ""
 
 # Maximum number of transactions in the mempool

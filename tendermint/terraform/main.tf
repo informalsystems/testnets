@@ -73,7 +73,8 @@ variable "group" {
 variable "instance_type" {
     type        = string
     description = "The AWS EC2 instance type for the Tendermint nodes to be deployed"
-    default     = "t2.micro"
+    #default     = "t2.micro"
+    default     = "t3.medium"
 }
 
 variable "telegraf_collection_interval" {

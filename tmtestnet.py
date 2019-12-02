@@ -747,7 +747,8 @@ TestnetNodeGroupConfig = namedtuple("TestnetNodeGroupConfig",
     defaults=[
         None, None, True, True, 1000, "started",
         None, [], [], OrderedDict(), 
-        "t2.micro", 8, True,
+        #"t2.micro", 8, True,
+        "t3.medium", 8, True,
         None,
     ],
 )
