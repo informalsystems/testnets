@@ -20,10 +20,12 @@ templates:
     method: "tm-bench"
     client_nodes: 1
     targets:
-      # We're only targeting a single node in us-east-1 (same region as the
-      # tm-bench instance)
+      # We're targeting all validators
       - validators[0]
-    time: 300
+      - validators[1]
+      - validators[2]
+      - validators[3]
+    time: 100
     broadcast_tx_method: async
     connections: 1
     size: 100
