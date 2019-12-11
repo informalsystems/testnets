@@ -1,5 +1,5 @@
-# A simple 4-validator test network, geographically dispersed.
-id: 4-trial
+# The "optimal" 4-validator test network, geographically dispersed.
+id: 4-optimal
 
 monitoring:
   signalfx:
@@ -58,6 +58,14 @@ load_tests:
   - 800_txs_per_sec:
       <<: *base_load_test
       rate: 800
+
+  - 1000_txs_per_sec:
+      <<: *base_load_test
+      rate: 1000
+
+  - 1300_txs_per_sec:
+      <<: *base_load_test
+      rate: 1300
 
   - 1600_txs_per_sec:
       <<: *base_load_test

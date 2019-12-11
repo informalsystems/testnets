@@ -1,0 +1,138 @@
+# The "optimal" 4-validator test network, geographically dispersed.
+id: 31-optimal
+
+monitoring:
+  signalfx:
+    enabled: no
+
+  influxdb:
+    enabled: yes
+    deploy: yes
+    password: ${INFLUXDB_PASSWORD}
+    region: us-east-1
+
+templates:
+  base_tendermint_node: &base_tendermint_node
+    binary: /Users/adi/Hammers/tendermint/build/tendermint_0.32.8_cleveldb
+    config_template: ./validator-config.toml
+
+  base_load_test: &base_load_test
+    method: "tm-bench"
+    client_nodes: 1
+    targets:
+      # We're targeting all validators
+      - validators[0]
+      - validators[1]
+      - validators[2]
+      - validators[3]
+      - validators[4]
+      - validators[5]
+      - validators[6]
+      - validators[7]
+      - validators[8]
+      - validators[9]
+      - validators[10]
+      - validators[11]
+      - validators[12]
+      - validators[13]
+      - validators[14]
+      - validators[15]
+      - validators[16]
+      - validators[17]
+      - validators[18]
+      - validators[19]
+      - validators[20]
+      - validators[21]
+      - validators[22]
+      - validators[23]
+      - validators[24]
+      - validators[25]
+      - validators[26]
+      - validators[27]
+      - validators[28]
+      - validators[29]
+      - validators[30]
+    time: 100
+    broadcast_tx_method: async
+    connections: 1
+    size: 100
+
+
+node_groups:
+  - validators:
+      <<: *base_tendermint_node
+      validators: yes
+      in_genesis: yes
+      persistent_peers:
+        - validators
+      regions:
+        - us_east_1: 5
+        - us_east_2: 5
+        - us_west_1: 5
+        - ap_northeast_2: 4
+        - ap_southeast_2: 4
+        - eu_central_1: 4
+        - eu_west_1: 4
+
+load_tests:
+  - 100_txs_per_sec:
+      <<: *base_load_test
+      rate: 100
+
+  # - 200_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 200
+
+  # - 400_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 400
+
+  # - 800_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 800
+
+  # - 1000_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 1000
+
+  # - 1300_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 1300
+
+  # - 1600_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 1600
+
+  # - 2000_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 2000
+
+  # - 2500_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 2500
+
+  # - 2500_txs_per_sec_long:
+  #     <<: *base_load_test
+  #     rate: 2500
+  #     time: 3600
+
+  # - 3200_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 3200
+
+  # - 3200_txs_per_sec_long:
+  #     <<: *base_load_test
+  #     rate: 3200
+  #     time: 3600
+
+  # - 6400_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 6400
+
+  # - 12800_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 12800
+
+  # - 25600_txs_per_sec:
+  #     <<: *base_load_test
+  #     rate: 25600
