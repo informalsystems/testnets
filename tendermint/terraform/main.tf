@@ -229,7 +229,7 @@ module "tendermint_uswest1" {
         aws = aws.uswest1
     }
 
-    ami_id                       = "ami-0a071719aeb9b2be9"
+    ami_id                       = "ami-0e871d318262358b5"
     keypair_name                 = "${var.keypair_name}"
     nodes                        = var.nodes_uswest1
     instance_type                = "${var.instance_type}"
@@ -265,7 +265,7 @@ module "tendermint_apnortheast2" {
         aws = aws.apnortheast2
     }
 
-    ami_id                       = "ami-04295cb28e32d0c8d"
+    ami_id                       = "ami-095590be863779ab2"
     keypair_name                 = "${var.keypair_name}"
     nodes                        = var.nodes_apnortheast2
     instance_type                = "${var.instance_type}"
@@ -283,7 +283,7 @@ module "tendermint_apsoutheast2" {
         aws = aws.apsoutheast2
     }
 
-    ami_id                       = "ami-095989d88defa6094"
+    ami_id                       = "ami-0b2a7a43fd4be4e80"
     keypair_name                 = "${var.keypair_name}"
     nodes                        = var.nodes_apsoutheast2
     instance_type                = "${var.instance_type}"
@@ -301,7 +301,7 @@ module "tendermint_eucentral1" {
         aws = aws.eucentral1
     }
 
-    ami_id                       = "ami-09bd44e6ab6b8db91"
+    ami_id                       = "ami-02d147f8a555ecc2e"
     keypair_name                 = "${var.keypair_name}"
     nodes                        = var.nodes_eucentral1
     instance_type                = "${var.instance_type}"
@@ -319,7 +319,7 @@ module "tendermint_euwest1" {
         aws = aws.euwest1
     }
 
-    ami_id                       = "ami-08600767435c2f0d3"
+    ami_id                       = "ami-06e0840ba6546910c"
     keypair_name                 = "${var.keypair_name}"
     nodes                        = var.nodes_euwest1
     instance_type                = "${var.instance_type}"
