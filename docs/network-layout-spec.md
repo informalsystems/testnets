@@ -18,6 +18,11 @@ proposed tool:
 # This is also used as the Tendermint network chain ID.
 id: testnet_abcd
 
+# This parameter goes in the genesis file: `consensus_params.block.max_bytes`.
+# Numeric format expected here.
+# Expected range: [1, 21504].
+block_max_kb: 100
+
 # Configuration relating to monitoring of the Tendermint network nodes. Right
 # now, the idea is to support SignalFX and/or InfluxDB. At least one of the two
 # must be configured.

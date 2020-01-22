@@ -722,8 +722,8 @@ def loadtest_destroy(cfg: "TestnetConfig", **kwargs):
 
 
 TestnetConfig = namedtuple("TestnetConfig",
-    ["id", "monitoring", "abci", "node_groups", "load_tests", "home", "tendermint_binaries"],
-    defaults=[None, None, dict(), OrderedDict(), OrderedDict(), TMTESTNET_HOME, dict()],
+    ["id", "block_max_kb", "monitoring", "abci", "node_groups", "load_tests", "home", "tendermint_binaries"],
+    defaults=[None, 0, None, dict(), OrderedDict(), OrderedDict(), TMTESTNET_HOME, dict()],
 )
 TestnetMonitoringConfig = namedtuple("TestnetMonitoringConfig",
     ["signalfx", "influxdb"],
@@ -812,10 +812,15 @@ def load_testnet_config(filename: str) -> TestnetConfig:
     if "id" not in cfg_dict:
         raise Exception("Missing required \"id\" parameter in configuration file")
 
+    # Basic sanity check (hardcoded max to 21 MB, the default Tendermint value)
+    if cfg_dict["block_max_kb"] < 1 or cfg_dict["block_max_kb"] > 21504:
+        raise Exception("Parameter block_max_kb is out of range [1, 21504]")
+
     config_base_path = os.path.dirname(os.path.abspath(filename))
     abci_config = load_abci_configs(cfg_dict.get("abci", dict()), config_base_path)
     return TestnetConfig(
         id=cfg_dict["id"],
+        block_max_kb=cfg_dict["block_max_kb"],
         monitoring=load_monitoring_config(cfg_dict.get("monitoring", dict())),
         abci=abci_config,
         node_groups=load_node_groups_config(cfg_dict.get("node_groups", []), config_base_path, abci_config),
@@ -1319,12 +1324,28 @@ def tendermint_load_nodes_config(base_path: str, node_count: int) -> List[Tender
 
 
 def tendermint_finalize_config(cfg: "TestnetConfig", tendermint_config: Dict[str, List[TendermintNodeConfig]]):
+    # Note that this genesis is particular for release 0.32.8, see:
+    # `github.com/tendermint/tendermint/blob/release/v0.32.8/types/params.go`.
     genesis_doc = {
         # amino is very particular about this format, and must be in UTC
         "genesis_time": pytz.utc.localize(datetime.datetime.utcnow()).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "chain_id": cfg.id,
         "validators": [],
         "app_hash": "",
+        "consensus_params": {
+            "block": {
+                "max_bytes": str(cfg.block_max_kb * 1024),
+                "time_iota_ms": str(1000),
+            },
+            "evidence": {
+                "max_age": "1000"
+            },
+            "validator": {
+                "pub_key_types": [
+                    "ed25519"
+                ]
+            }
+        },
     }
     for node_group_name, node_group_cfg in cfg.node_groups.items():
         # first handle persistent peers for this group
