@@ -27,7 +27,7 @@ fast_sync = false
 #   - EXPERIMENTAL
 #   - may be faster is some use-cases (random reads - indexer)
 #   - use boltdb build tag (go build -tags boltdb)
-db_backend = "cleveldb"
+db_backend = "memdb"
 
 # Database directory
 db_dir = "data"
@@ -173,7 +173,7 @@ max_num_inbound_peers = 40
 max_num_outbound_peers = 10
 
 # Time to wait before flushing messages out on the connection
-flush_throttle_timeout = "50ms"
+flush_throttle_timeout = "10ms"
 
 # Maximum size of a message packet payload, in bytes
 max_packet_msg_payload_size = 1024
@@ -185,7 +185,7 @@ send_rate = 5120000
 recv_rate = 5120000
 
 # Set true to enable the peer-exchange reactor
-pex = true
+pex = false
 
 # Seed mode, in which node constantly crawls the network and looks for
 # peers. If another node asks it for addresses, it responds and disconnects.
@@ -211,7 +211,7 @@ broadcast = false
 wal_dir = ""
 
 # Maximum number of transactions in the mempool
-size = 2000
+size = 30000
 
 # Limit the total size of all txs in the mempool.
 # This only accounts for raw transactions (e.g. given 1MB transactions and
@@ -242,7 +242,7 @@ create_empty_blocks = false
 create_empty_blocks_interval = "0s"
 
 # Reactor sleep duration parameters
-peer_gossip_sleep_duration = "30ms"
+peer_gossip_sleep_duration = "10ms"
 peer_query_maj23_sleep_duration = "2s"
 
 ##### transactions indexer configuration options #####

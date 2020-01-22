@@ -1,5 +1,11 @@
-# The "optimal" 4-validator test network, geographically dispersed.
-id: 4-optimal
+# The "optimal" 4-validator test network, no WAN links: this is deployed in a
+# single datacenter (US-EAST-1).
+id: 4-optimal-datacenter
+
+# Numeric format expected here.
+# This parameter goes in the genesis file: `consensus_params.block.max_bytes`.
+# Expected range: [1, 21504].
+block_max_kb: 200
 
 monitoring:
   signalfx:
@@ -40,8 +46,6 @@ node_groups:
         - validators
       regions:
         - us_east_1: 4
-        #- us_east_1: 2
-        #- us_east_2: 2
 
 load_tests:
   - 100_txs_per_sec:
