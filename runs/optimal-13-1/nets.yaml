@@ -1,0 +1,112 @@
+# A simple 4-validator test network, geographically dispersed.
+id: 13-optimal
+
+monitoring:
+  signalfx:
+    enabled: no
+
+  influxdb:
+    enabled: yes
+    deploy: yes
+    password: ${INFLUXDB_PASSWORD}
+    region: us-east-1
+
+templates:
+  base_tendermint_node: &base_tendermint_node
+    binary: /Users/adi/Hammers/tendermint/build/tendermint_0.32.8_cleveldb
+    config_template: ./validator-config.toml
+
+  base_load_test: &base_load_test
+    method: "tm-bench"
+    client_nodes: 1
+    targets:
+      # We're only targeting all validators
+      - validators[0]
+      - validators[1]
+      - validators[2]
+      - validators[3]
+      - validators[4]
+      - validators[5]
+      - validators[6]
+      - validators[7]
+      - validators[8]
+      - validators[9]
+      - validators[10]
+      - validators[11]
+      - validators[12]
+    time: 100
+    broadcast_tx_method: async
+    connections: 1
+    size: 100
+
+
+node_groups:
+  - validators:
+      <<: *base_tendermint_node
+      validators: yes
+      in_genesis: yes
+      persistent_peers:
+        - validators
+      regions:
+        - us_east_1: 5
+        - eu_central_1: 4
+        - us_west_1: 4
+
+load_tests:
+  - 100_txs_per_sec:
+      <<: *base_load_test
+      rate: 100
+
+  - 200_txs_per_sec:
+      <<: *base_load_test
+      rate: 200
+
+  - 400_txs_per_sec:
+      <<: *base_load_test
+      rate: 400
+
+  - 800_txs_per_sec:
+      <<: *base_load_test
+      rate: 800
+
+  - 1000_txs_per_sec:
+      <<: *base_load_test
+      rate: 1000
+
+  - 1600_txs_per_sec:
+      <<: *base_load_test
+      rate: 1600
+
+  - 2000_txs_per_sec:
+      <<: *base_load_test
+      rate: 2000
+
+  - 2500_txs_per_sec:
+      <<: *base_load_test
+      rate: 2500
+
+  - 2500_txs_per_sec_long:
+      <<: *base_load_test
+      rate: 2500
+      time: 3600
+
+  - 3200_txs_per_sec:
+      <<: *base_load_test
+      rate: 3200
+
+  - 3200_txs_per_sec_long:
+      <<: *base_load_test
+      rate: 3200
+      time: 3600
+
+  - 6400_txs_per_sec:
+      <<: *base_load_test
+      rate: 6400
+
+  - 12800_txs_per_sec:
+      <<: *base_load_test
+      rate: 12800
+
+  - 25600_txs_per_sec:
+      <<: *base_load_test
+      rate: 25600
